@@ -1,4 +1,4 @@
-FROM golang:1.25.6-alpine AS builder
+FROM --platform=$BUILDPLATFORM golang:1.25.6-alpine AS builder
 WORKDIR /src
 
 COPY go.mod go.sum ./
@@ -7,9 +7,8 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 
 COPY . .
 
-ARG TARGETOS=linux
-ARG TARGETARCH=amd64
-ARG TARGETVARIANT
+ARG TARGETOS
+ARG TARGETARCH
 
 RUN --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
