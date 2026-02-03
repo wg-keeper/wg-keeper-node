@@ -2,11 +2,14 @@ name: CI/CD
 
 on:
   push:
-    branches: ["**"]
+    branches: ["main"]
     tags:
       - "v*.*.*"
   pull_request:
     branches: ["main"]
+
+permissions:
+  contents: read
 
 env:
   SERVICE_NAME: node
@@ -21,7 +24,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
-          go-version: "1.25.6"
+          go-version-file: go.mod
           cache: true
 
       - name: Run Go tests
