@@ -1,11 +1,16 @@
 FROM golang:1.25.6-alpine AS builder
 WORKDIR /src
+
 COPY go.mod go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod \
     go mod download
+
 COPY . .
+
 ARG TARGETOS=linux
 ARG TARGETARCH=amd64
+ARG TARGETVARIANT
+
 RUN --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
     go build -trimpath -ldflags="-s -w" -o /out/wg-keeper-node ./cmd/server
