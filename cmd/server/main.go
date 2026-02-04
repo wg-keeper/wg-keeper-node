@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -24,7 +25,12 @@ const (
 )
 
 func main() {
-	gin.SetMode(gin.ReleaseMode)
+	debug := isDebugEnabled()
+	if debug {
+		gin.SetMode(gin.DebugMode)
+	} else {
+		gin.SetMode(gin.ReleaseMode)
+	}
 	log.SetFlags(0)
 
 	cfg, err := config.LoadConfig()
@@ -53,7 +59,7 @@ func main() {
 	log.Printf("time=%s level=info msg=\"starting\" service=%s version=%s", now, version.Name, version.Version)
 	log.Printf("time=%s level=info msg=\"listening\" addr=%s", now, addr)
 	log.Printf("time=%s level=info msg=\"wireguard ready\" iface=%s listen=%d subnet=%s", now, cfg.WGInterface, cfg.WGListenPort, cfg.WGSubnet)
-	router := server.NewRouter(cfg.APIKey, wgService)
+	router := server.NewRouter(cfg.APIKey, wgService, debug)
 	httpServer := &http.Server{
 		Addr:    addr,
 		Handler: router,
@@ -88,7 +94,7 @@ func handleInit(cfg config.Config, args []string) (bool, error) {
 		return false, nil
 	}
 	if args[1] != cmdInit {
-		return true, fmt.Errorf("unknown command: %s", args[1])
+		return true, fmt.Errorf("unknown command: %s; use: no args (run server) or init [--print-path]", args[1])
 	}
 
 	path, err := wireguard.EnsureWireGuardConfig(cfg)
@@ -101,4 +107,9 @@ func handleInit(cfg config.Config, args []string) (bool, error) {
 	}
 	log.Printf("WireGuard config ready at %s", path)
 	return true, nil
+}
+
+func isDebugEnabled() bool {
+	v := strings.TrimSpace(strings.ToLower(os.Getenv("DEBUG")))
+	return v == "true" || v == "1"
 }

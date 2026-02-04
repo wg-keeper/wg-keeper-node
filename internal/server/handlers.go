@@ -11,7 +11,7 @@ import (
 )
 
 type peerRequest struct {
-	PeerID string `json:"peerId" binding:"required,uuid4"`
+	PeerID string `json:"peerId" binding:"required"`
 }
 
 type peerResponse struct {
@@ -36,11 +36,11 @@ func healthHandler(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"status": "ok"})
 }
 
-func statsHandler(wgService wgStatsService) gin.HandlerFunc {
+func statsHandler(wgService wgStatsService, debug bool) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		stats, err := wgService.Stats()
 		if err != nil {
-			writeError(c, http.StatusInternalServerError, "stats unavailable", "stats_unavailable")
+			writeError(c, http.StatusInternalServerError, "stats unavailable", "stats_unavailable", debug, err)
 			return
 		}
 
@@ -48,11 +48,15 @@ func statsHandler(wgService wgStatsService) gin.HandlerFunc {
 	}
 }
 
-func createPeerHandler(wgService wgPeerService) gin.HandlerFunc {
+func createPeerHandler(wgService wgPeerService, debug bool) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req peerRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
-			writeError(c, http.StatusBadRequest, "invalid json body", "invalid_json")
+			writeError(c, http.StatusBadRequest, "invalid json body", "invalid_json", debug, err)
+			return
+		}
+		if !IsUUIDv4(req.PeerID) {
+			writeError(c, http.StatusBadRequest, "peerId must be uuid v4", "invalid_peer_id", debug, nil)
 			return
 		}
 
@@ -60,14 +64,14 @@ func createPeerHandler(wgService wgPeerService) gin.HandlerFunc {
 		if err != nil {
 			status, message, reason := peerError(err)
 			log.Printf("peer create failed: peerId=%s reason=%s", req.PeerID, reason)
-			c.JSON(status, gin.H{"error": message})
+			writeError(c, status, message, reason, debug, err)
 			return
 		}
 
 		serverPublicKey, serverListenPort, err := wgService.ServerInfo()
 		if err != nil {
 			log.Printf("peer create failed: peerId=%s reason=server_info_unavailable", req.PeerID)
-			writeError(c, http.StatusInternalServerError, "server public key unavailable", "server_info_unavailable")
+			writeError(c, http.StatusInternalServerError, "server public key unavailable", "server_info_unavailable", debug, err)
 			return
 		}
 
@@ -88,18 +92,18 @@ func createPeerHandler(wgService wgPeerService) gin.HandlerFunc {
 	}
 }
 
-func deletePeerHandler(wgService wgPeerService) gin.HandlerFunc {
+func deletePeerHandler(wgService wgPeerService, debug bool) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		peerID := c.Param("peerId")
-		if !isUUIDv4(peerID) {
-			writeError(c, http.StatusBadRequest, "peerId must be uuid v4", "invalid_peer_id")
+		if !IsUUIDv4(peerID) {
+			writeError(c, http.StatusBadRequest, "peerId must be uuid v4", "invalid_peer_id", debug, nil)
 			return
 		}
 
 		if err := wgService.DeletePeer(peerID); err != nil {
 			status, message, reason := peerError(err)
 			log.Printf("peer delete failed: peerId=%s reason=%s", peerID, reason)
-			c.JSON(status, gin.H{"error": message})
+			writeError(c, status, message, reason, debug, err)
 			return
 		}
 
@@ -119,8 +123,12 @@ func peerError(err error) (int, string, string) {
 	return http.StatusInternalServerError, "wireguard operation failed", "wireguard_error"
 }
 
-func writeError(c *gin.Context, status int, message, code string) {
-	c.JSON(status, gin.H{"error": message, "code": code})
+func writeError(c *gin.Context, status int, message, code string, debug bool, err error) {
+	out := gin.H{"error": message, "code": code}
+	if debug && err != nil {
+		out["detail"] = err.Error()
+	}
+	c.JSON(status, out)
 }
 
 type wgPeerService interface {

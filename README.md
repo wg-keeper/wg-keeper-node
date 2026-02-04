@@ -38,6 +38,10 @@ flowchart LR
   WG --> WAN[(WAN/Internet)]
 ```
 
+## Limitations
+
+- **In-memory peer state:** The mapping of peer IDs to peers is stored only in memory. After a process restart, this state is lost. Existing peer IDs will no longer be found (e.g. DELETE returns 404); a new POST with the same peer ID creates a new peer (new keys, same or different AllowedIP depending on allocation). Orchestrators should treat a node restart as an event after which peers may need to be re-created or re-attached as required.
+
 ## Requirements
 
 - Linux host with WireGuard support.
@@ -64,6 +68,7 @@ Key settings:
 
 - `server.port`: HTTP API port.
 - `auth.api_key`: API key for protected endpoints.
+- `DEBUG`: set to `true` or `1` to enable debug mode (verbose Gin logs and detailed error messages in API responses). Do not use in production.
 - `wireguard.interface`: interface name (e.g., `wg0`).
 - `wireguard.subnet`: IPv4 CIDR subnet for peer allocation.
 - `wireguard.listen_port`: WireGuard UDP port.
@@ -112,6 +117,12 @@ go run ./cmd/server
 ```
 
 By default, the service starts on the port from the config (`server.port`).
+
+Allowed invocations:
+- No arguments — run the API server.
+- `init` — ensure WireGuard config exists and exit (logs config path).
+- `init --print-path` — same as `init` and print the config file path to stdout (for scripts).
+Any other first argument is treated as an unknown command and the process exits with an error.
 
 ## API
 

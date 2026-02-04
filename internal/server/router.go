@@ -9,8 +9,11 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func NewRouter(apiKey string, wgService *wireguard.WireGuardService) *gin.Engine {
+const debugKey = "debug"
+
+func NewRouter(apiKey string, wgService *wireguard.WireGuardService, debug bool) *gin.Engine {
 	router := gin.New()
+	router.Use(debugMiddleware(debug))
 	router.Use(gin.LoggerWithFormatter(func(param gin.LogFormatterParams) string {
 		return fmt.Sprintf(
 			"time=%s level=info msg=\"http request\" method=%s path=%s status=%d latency=%s ip=%s\n",
@@ -22,15 +25,22 @@ func NewRouter(apiKey string, wgService *wireguard.WireGuardService) *gin.Engine
 			param.ClientIP,
 		)
 	}), gin.Recovery())
-	registerRoutes(router, apiKey, wgService)
+	registerRoutes(router, apiKey, wgService, debug)
 	return router
 }
 
-func registerRoutes(router *gin.Engine, apiKey string, wgService *wireguard.WireGuardService) {
+func debugMiddleware(debug bool) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		c.Set(debugKey, debug)
+		c.Next()
+	}
+}
+
+func registerRoutes(router *gin.Engine, apiKey string, wgService *wireguard.WireGuardService, debug bool) {
 	router.GET("/health", healthHandler)
-	router.GET("/stats", apiKeyMiddleware(apiKey), statsHandler(wgService))
+	router.GET("/stats", apiKeyMiddleware(apiKey), statsHandler(wgService, debug))
 
 	peers := router.Group("/peers", apiKeyMiddleware(apiKey))
-	peers.POST("", createPeerHandler(wgService))
-	peers.DELETE("/:peerId", deletePeerHandler(wgService))
+	peers.POST("", createPeerHandler(wgService, debug))
+	peers.DELETE("/:peerId", deletePeerHandler(wgService, debug))
 }

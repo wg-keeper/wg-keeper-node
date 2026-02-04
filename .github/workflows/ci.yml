@@ -18,6 +18,10 @@ env:
 jobs:
   test:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+      checks: write
     steps:
       - uses: actions/checkout@v6
 
@@ -27,8 +31,17 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - name: Run go vet
+        run: go vet ./...
+
       - name: Run Go tests
-        run: go test ./...
+        run: go test -coverprofile=coverage.out ./...
+
+      - name: Install golangci-lint
+        run: go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+
+      - name: Run golangci-lint
+        run: golangci-lint run
 
   build_push:
     name: Build & Push Image
@@ -48,6 +61,15 @@ jobs:
         run: |
           OWNER_LC=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
           echo "IMAGE=${REGISTRY}/${OWNER_LC}/${SERVICE_NAME}" >> $GITHUB_ENV
+
+      - name: Set VERSION for build
+        id: version
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+          else
+            echo "VERSION=edge" >> $GITHUB_OUTPUT
+          fi
 
       - uses: docker/setup-qemu-action@v3
 
@@ -86,6 +108,8 @@ jobs:
           context: .
           push: true
           platforms: linux/amd64,linux/arm64
+          build-args: |
+            VERSION=${{ steps.version.outputs.VERSION }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha

@@ -57,7 +57,7 @@ func TestStatsHandlerSuccess(t *testing.T) {
 				Service: wireguard.ServiceInfo{Name: "wg-keeper-node", Version: "0.0.1"},
 			}, nil
 		},
-	}))
+	}, false))
 
 	rec := performRequest(t, router, http.MethodGet, "/stats", nil, "key")
 	if rec.Code != http.StatusOK {
@@ -72,7 +72,7 @@ func TestStatsHandlerError(t *testing.T) {
 		statsFunc: func() (wireguard.Stats, error) {
 			return wireguard.Stats{}, errors.New("boom")
 		},
-	}))
+	}, false))
 
 	rec := performRequest(t, router, http.MethodGet, "/stats", nil, "key")
 	if rec.Code != http.StatusInternalServerError {
@@ -90,11 +90,30 @@ func TestStatsHandlerError(t *testing.T) {
 func TestCreatePeerInvalidJSON(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
-	router.POST("/peers", apiKeyMiddleware("key"), createPeerHandler(mockWGService{}))
+	router.POST("/peers", apiKeyMiddleware("key"), createPeerHandler(mockWGService{}, false))
 
 	rec := performRequest(t, router, http.MethodPost, "/peers", []byte("{"), "key")
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d", rec.Code)
+	}
+}
+
+func TestCreatePeerInvalidPeerID(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.POST("/peers", apiKeyMiddleware("key"), createPeerHandler(mockWGService{}, false))
+
+	body := []byte(`{"peerId":"not-a-uuid-v4"}`)
+	rec := performRequest(t, router, http.MethodPost, "/peers", body, "key")
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for invalid peerId, got %d", rec.Code)
+	}
+	var payload map[string]interface{}
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("invalid json: %v", err)
+	}
+	if payload["code"] != "invalid_peer_id" {
+		t.Fatalf("expected code invalid_peer_id, got %v", payload["code"])
 	}
 }
 
@@ -105,7 +124,7 @@ func TestCreatePeerEnsureError(t *testing.T) {
 		ensurePeerFunc: func(string) (wireguard.PeerInfo, error) {
 			return wireguard.PeerInfo{}, wireguard.ErrNoAvailableIP
 		},
-	}))
+	}, false))
 
 	body := []byte(`{"peerId":"550e8400-e29b-41d4-a716-446655440000"}`)
 	rec := performRequest(t, router, http.MethodPost, "/peers", body, "key")
@@ -124,7 +143,7 @@ func TestCreatePeerServerInfoError(t *testing.T) {
 		serverInfoFunc: func() (string, int, error) {
 			return "", 0, errors.New("boom")
 		},
-	}))
+	}, false))
 
 	body := []byte(`{"peerId":"550e8400-e29b-41d4-a716-446655440000"}`)
 	rec := performRequest(t, router, http.MethodPost, "/peers", body, "key")
@@ -143,7 +162,7 @@ func TestCreatePeerSuccess(t *testing.T) {
 		serverInfoFunc: func() (string, int, error) {
 			return "server-pub", 51820, nil
 		},
-	}))
+	}, false))
 
 	body := []byte(`{"peerId":"550e8400-e29b-41d4-a716-446655440000"}`)
 	rec := performRequest(t, router, http.MethodPost, "/peers", body, "key")
@@ -155,7 +174,7 @@ func TestCreatePeerSuccess(t *testing.T) {
 func TestDeletePeerInvalidID(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
-	router.DELETE("/peers/:peerId", apiKeyMiddleware("key"), deletePeerHandler(mockWGService{}))
+	router.DELETE("/peers/:peerId", apiKeyMiddleware("key"), deletePeerHandler(mockWGService{}, false))
 
 	rec := performRequest(t, router, http.MethodDelete, "/peers/not-a-uuid", nil, "key")
 	if rec.Code != http.StatusBadRequest {
@@ -170,7 +189,7 @@ func TestDeletePeerNotFound(t *testing.T) {
 		deletePeerFunc: func(string) error {
 			return wireguard.ErrPeerNotFound
 		},
-	}))
+	}, false))
 
 	rec := performRequest(t, router, http.MethodDelete, "/peers/550e8400-e29b-41d4-a716-446655440000", nil, "key")
 	if rec.Code != http.StatusNotFound {
@@ -185,10 +204,32 @@ func TestDeletePeerSuccess(t *testing.T) {
 		deletePeerFunc: func(string) error {
 			return nil
 		},
-	}))
+	}, false))
 
 	rec := performRequest(t, router, http.MethodDelete, "/peers/550e8400-e29b-41d4-a716-446655440000", nil, "key")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+}
+
+func TestStatsHandlerErrorWithDebugDetail(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.GET("/stats", apiKeyMiddleware("key"), statsHandler(mockWGService{
+		statsFunc: func() (wireguard.Stats, error) {
+			return wireguard.Stats{}, errors.New("internal failure")
+		},
+	}, true))
+
+	rec := performRequest(t, router, http.MethodGet, "/stats", nil, "key")
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d", rec.Code)
+	}
+	var payload map[string]interface{}
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("invalid json: %v", err)
+	}
+	if payload["detail"] != "internal failure" {
+		t.Fatalf("expected detail in debug mode, got %v", payload["detail"])
 	}
 }

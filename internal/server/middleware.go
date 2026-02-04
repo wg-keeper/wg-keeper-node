@@ -27,8 +27,5 @@ func apiKeyMiddleware(apiKey string) gin.HandlerFunc {
 }
 
 func apiKeyMatches(c *gin.Context, apiKey string) bool {
-	if c.GetHeader(apiKeyHeader) == apiKey {
-		return true
-	}
-	return false
+	return c.GetHeader(apiKeyHeader) == apiKey
 }

@@ -1,15 +1,12 @@
 package server
 
-import (
-	"github.com/gin-gonic/gin/binding"
-	"github.com/go-playground/validator/v10"
-)
+import "github.com/google/uuid"
 
-func isUUIDv4(value string) bool {
-	engine := binding.Validator.Engine()
-	validate, ok := engine.(*validator.Validate)
-	if !ok || validate == nil {
+// IsUUIDv4 returns true if s is a valid UUID version 4 string (RFC 4122 variant).
+func IsUUIDv4(s string) bool {
+	u, err := uuid.Parse(s)
+	if err != nil {
 		return false
 	}
-	return validate.Var(value, "required,uuid4") == nil
+	return u.Version() == 4 && u.Variant() == uuid.RFC4122
 }

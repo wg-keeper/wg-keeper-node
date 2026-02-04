@@ -9,10 +9,11 @@ COPY . .
 
 ARG TARGETOS
 ARG TARGETARCH
+ARG VERSION=edge
 
 RUN --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
-    go build -trimpath -ldflags="-s -w" -o /out/wg-keeper-node ./cmd/server
+    go build -trimpath -ldflags="-s -w -X github.com/wg-keeper/wg-keeper-node/internal/version.Version=${VERSION}" -o /out/wg-keeper-node ./cmd/server
 
 FROM alpine:3.20
 WORKDIR /app
