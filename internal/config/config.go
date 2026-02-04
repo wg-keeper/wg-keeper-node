@@ -11,6 +11,8 @@ import (
 	"github.com/goccy/go-yaml"
 )
 
+const errMsgRequired = "%s is required"
+
 type Config struct {
 	Port         int
 	APIKey       string
@@ -21,6 +23,10 @@ type Config struct {
 	WANInterface string
 }
 
+type wireguardRouting struct {
+	WANInterface string `yaml:"wan_interface"`
+}
+
 type fileConfig struct {
 	Server struct {
 		Port string `yaml:"port"`
@@ -29,13 +35,11 @@ type fileConfig struct {
 		APIKey string `yaml:"api_key"`
 	} `yaml:"auth"`
 	WireGuard struct {
-		Interface  string `yaml:"interface"`
-		Subnet     string `yaml:"subnet"`
-		ServerIP   string `yaml:"server_ip"`
-		ListenPort int    `yaml:"listen_port"`
-		Routing    struct {
-			WANInterface string `yaml:"wan_interface"`
-		} `yaml:"routing"`
+		Interface  string           `yaml:"interface"`
+		Subnet     string           `yaml:"subnet"`
+		ServerIP   string           `yaml:"server_ip"`
+		ListenPort int              `yaml:"listen_port"`
+		Routing    wireguardRouting `yaml:"routing"`
 	} `yaml:"wireguard"`
 }
 
@@ -116,7 +120,7 @@ func (c Config) Addr() string {
 func requireString(field, value string) (string, error) {
 	out := strings.TrimSpace(value)
 	if out == "" {
-		return "", fmt.Errorf("%s is required", field)
+		return "", fmt.Errorf(errMsgRequired, field)
 	}
 	return out, nil
 }
@@ -124,7 +128,7 @@ func requireString(field, value string) (string, error) {
 func parsePort(field, value string) (int, error) {
 	raw := strings.TrimSpace(value)
 	if raw == "" {
-		return 0, fmt.Errorf("%s is required", field)
+		return 0, fmt.Errorf(errMsgRequired, field)
 	}
 	port, err := strconv.Atoi(raw)
 	if err != nil || port <= 0 || port > 65535 {
@@ -143,7 +147,7 @@ func requirePort(field string, port int) error {
 func requireCIDR(field, value string) (string, error) {
 	out := strings.TrimSpace(value)
 	if out == "" {
-		return "", fmt.Errorf("%s is required", field)
+		return "", fmt.Errorf(errMsgRequired, field)
 	}
 	if _, _, err := net.ParseCIDR(out); err != nil {
 		return "", fmt.Errorf("%s must be a valid CIDR", field)
