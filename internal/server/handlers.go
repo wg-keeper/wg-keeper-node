@@ -36,7 +36,7 @@ func healthHandler(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"status": "ok"})
 }
 
-func statsHandler(wgService wgStatsService, debug bool) gin.HandlerFunc {
+func statsHandler(wgService statsProvider, debug bool) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		stats, err := wgService.Stats()
 		if err != nil {
@@ -63,19 +63,19 @@ func createPeerHandler(wgService wgPeerService, debug bool) gin.HandlerFunc {
 		info, err := wgService.EnsurePeer(req.PeerID)
 		if err != nil {
 			status, message, reason := peerError(err)
-			log.Printf("peer create failed: peerId=%s reason=%s", req.PeerID, reason)
+			log.Printf("peer create failed: reason=%s", reason)
 			writeError(c, status, message, reason, debug, err)
 			return
 		}
 
 		serverPublicKey, serverListenPort, err := wgService.ServerInfo()
 		if err != nil {
-			log.Printf("peer create failed: peerId=%s reason=server_info_unavailable", req.PeerID)
+			log.Printf("peer create failed: reason=server_info_unavailable")
 			writeError(c, http.StatusInternalServerError, "server public key unavailable", "server_info_unavailable", debug, err)
 			return
 		}
 
-		log.Printf("peer created: %s", info.PeerID)
+		log.Printf("peer created")
 		c.JSON(http.StatusOK, createPeerResponse{
 			Server: serverInfoResponse{
 				PublicKey:  serverPublicKey,
@@ -102,12 +102,12 @@ func deletePeerHandler(wgService wgPeerService, debug bool) gin.HandlerFunc {
 
 		if err := wgService.DeletePeer(peerID); err != nil {
 			status, message, reason := peerError(err)
-			log.Printf("peer delete failed: peerId=%s reason=%s", peerID, reason)
+			log.Printf("peer delete failed: reason=%s", reason)
 			writeError(c, status, message, reason, debug, err)
 			return
 		}
 
-		log.Printf("peer deleted: %s", peerID)
+		log.Printf("peer deleted")
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
 	}
 }
@@ -137,6 +137,7 @@ type wgPeerService interface {
 	ServerInfo() (string, int, error)
 }
 
-type wgStatsService interface {
+// statsProvider provides WireGuard stats (single-method interface naming).
+type statsProvider interface {
 	Stats() (wireguard.Stats, error)
 }

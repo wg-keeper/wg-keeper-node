@@ -7,7 +7,7 @@ import (
 	"github.com/wg-keeper/wg-keeper-node/internal/config"
 )
 
-func TestHandleInit_NoArgs(t *testing.T) {
+func TestHandleInitNoArgs(t *testing.T) {
 	cfg := config.Config{}
 	handled, err := handleInit(cfg, []string{"wg-keeper-node"})
 	if err != nil {
@@ -18,7 +18,7 @@ func TestHandleInit_NoArgs(t *testing.T) {
 	}
 }
 
-func TestHandleInit_UnknownCommand(t *testing.T) {
+func TestHandleInitUnknownCommand(t *testing.T) {
 	cfg := config.Config{}
 	handled, err := handleInit(cfg, []string{"wg-keeper-node", "foo"})
 	if !handled {

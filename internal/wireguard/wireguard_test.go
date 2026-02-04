@@ -10,6 +10,13 @@ import (
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 )
 
+const (
+	msgUnexpectedError = "unexpected error: %v"
+	ipServerTest       = "10.0.0.1"
+	ipPeerTest         = "10.0.0.2"
+	peerIDTest         = "peer-1"
+)
+
 type fakeWGClient struct {
 	device *wgtypes.Device
 	err    error
@@ -40,7 +47,7 @@ func TestResolveServerIP(t *testing.T) {
 
 	ip, err := resolveServerIP(subnet, "10.0.0.10")
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		t.Fatalf(msgUnexpectedError, err)
 	}
 	if ip.String() != "10.0.0.10" {
 		t.Fatalf("unexpected ip: %s", ip.String())
@@ -53,7 +60,7 @@ func TestResolveServerIP(t *testing.T) {
 
 func TestAllocateIPSkipsUsed(t *testing.T) {
 	_, subnet, _ := net.ParseCIDR("10.0.0.0/29")
-	serverIP := net.ParseIP("10.0.0.1")
+	serverIP := net.ParseIP(ipServerTest)
 
 	device := &wgtypes.Device{
 		Peers: []wgtypes.Peer{
@@ -69,14 +76,14 @@ func TestAllocateIPSkipsUsed(t *testing.T) {
 		store:      NewPeerStore(),
 	}
 	svc.store.Set(PeerRecord{
-		PeerID:    "peer-1",
+		PeerID:    peerIDTest,
 		PublicKey: wgtypes.Key{},
-		AllowedIP: ipNet(t, "10.0.0.2"),
+		AllowedIP: ipNet(t, ipPeerTest),
 	})
 
 	ip, err := svc.allocateIP()
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		t.Fatalf(msgUnexpectedError, err)
 	}
 	if ip.IP.String() != "10.0.0.4" {
 		t.Fatalf("expected 10.0.0.4, got %s", ip.IP.String())
@@ -85,7 +92,7 @@ func TestAllocateIPSkipsUsed(t *testing.T) {
 
 func TestAllocateIPNoAvailable(t *testing.T) {
 	_, subnet, _ := net.ParseCIDR("10.0.0.0/30")
-	serverIP := net.ParseIP("10.0.0.1")
+	serverIP := net.ParseIP(ipServerTest)
 
 	svc := &WireGuardService{
 		client:     fakeWGClient{device: &wgtypes.Device{}},
@@ -95,9 +102,9 @@ func TestAllocateIPNoAvailable(t *testing.T) {
 		store:      NewPeerStore(),
 	}
 	svc.store.Set(PeerRecord{
-		PeerID:    "peer-1",
+		PeerID:    peerIDTest,
 		PublicKey: wgtypes.Key{},
-		AllowedIP: ipNet(t, "10.0.0.2"),
+		AllowedIP: ipNet(t, ipPeerTest),
 	})
 
 	_, err := svc.allocateIP()
@@ -108,7 +115,7 @@ func TestAllocateIPNoAvailable(t *testing.T) {
 
 func TestStatsActivePeers(t *testing.T) {
 	_, subnet, _ := net.ParseCIDR("10.0.0.0/29")
-	serverIP := net.ParseIP("10.0.0.1")
+	serverIP := net.ParseIP(ipServerTest)
 	now := time.Now()
 
 	device := &wgtypes.Device{
@@ -126,14 +133,14 @@ func TestStatsActivePeers(t *testing.T) {
 		store:      NewPeerStore(),
 	}
 	svc.store.Set(PeerRecord{
-		PeerID:    "peer-1",
+		PeerID:    peerIDTest,
 		PublicKey: wgtypes.Key{},
-		AllowedIP: ipNet(t, "10.0.0.2"),
+		AllowedIP: ipNet(t, ipPeerTest),
 	})
 
 	stats, err := svc.Stats()
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		t.Fatalf(msgUnexpectedError, err)
 	}
 	if stats.Peers.Active != 1 {
 		t.Fatalf("expected 1 active peer, got %d", stats.Peers.Active)
