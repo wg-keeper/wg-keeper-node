@@ -77,11 +77,7 @@ func main() {
 
 	serverErr := make(chan error, 1)
 	go func() {
-		if cfg.TLSEnabled() {
-			serverErr <- httpServer.ListenAndServeTLS(cfg.TLSCertFile, cfg.TLSKeyFile)
-		} else {
-			serverErr <- httpServer.ListenAndServe()
-		}
+		serverErr <- runServer(cfg, httpServer)
 	}()
 
 	shutdownSignal := make(chan os.Signal, 1)
@@ -101,6 +97,13 @@ func main() {
 	if err := httpServer.Shutdown(ctx); err != nil {
 		log.Printf("time=%s level=error msg=\"shutdown error\" error=%v", time.Now().Format(time.RFC3339), err)
 	}
+}
+
+func runServer(cfg config.Config, srv *http.Server) error {
+	if cfg.TLSEnabled() {
+		return srv.ListenAndServeTLS(cfg.TLSCertFile, cfg.TLSKeyFile)
+	}
+	return srv.ListenAndServe()
 }
 
 func handleInit(cfg config.Config, args []string) (bool, error) {
