@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"log"
 	"net/http"
@@ -56,18 +57,31 @@ func main() {
 
 	addr := cfg.Addr()
 	now := time.Now().Format(time.RFC3339)
+	protocol := "http"
+	if cfg.TLSEnabled() {
+		protocol = "https"
+	}
 	log.Printf("time=%s level=info msg=\"starting\" service=%s version=%s", now, version.Name, version.Version)
-	log.Printf("time=%s level=info msg=\"listening\" addr=%s", now, addr)
+	log.Printf("time=%s level=info msg=\"listening\" addr=%s protocol=%s", now, addr, protocol)
 	log.Printf("time=%s level=info msg=\"wireguard ready\" iface=%s listen=%d subnet=%s", now, cfg.WGInterface, cfg.WGListenPort, cfg.WGSubnet)
 	router := server.NewRouter(cfg.APIKey, wgService, debug)
 	httpServer := &http.Server{
 		Addr:    addr,
 		Handler: router,
 	}
+	if cfg.TLSEnabled() {
+		httpServer.TLSConfig = &tls.Config{
+			MinVersion: tls.VersionTLS12,
+		}
+	}
 
 	serverErr := make(chan error, 1)
 	go func() {
-		serverErr <- httpServer.ListenAndServe()
+		if cfg.TLSEnabled() {
+			serverErr <- httpServer.ListenAndServeTLS(cfg.TLSCertFile, cfg.TLSKeyFile)
+		} else {
+			serverErr <- httpServer.ListenAndServe()
+		}
 	}()
 
 	shutdownSignal := make(chan os.Signal, 1)

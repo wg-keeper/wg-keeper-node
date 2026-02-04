@@ -1,5 +1,8 @@
 server:
   port: 51821
+  # Optional: enable HTTPS (set both paths)
+  # tls_cert: "/path/to/cert.pem"
+  # tls_key: "/path/to/key.pem"
 auth:
   api_key: "changeme"
 wireguard:

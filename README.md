@@ -66,7 +66,8 @@ NODE_CONFIG=/path/config.yaml
 
 Key settings:
 
-- `server.port`: HTTP API port.
+- `server.port`: API port (HTTP or HTTPS depending on TLS).
+- `server.tls_cert`, `server.tls_key`: optional paths to TLS certificate and private key (PEM). If both are set, the API runs over HTTPS with TLS 1.2+; otherwise it runs over HTTP.
 - `auth.api_key`: API key for protected endpoints.
 - `DEBUG`: set to `true` or `1` to enable debug mode (verbose Gin logs and detailed error messages in API responses). Do not use in production.
 - `wireguard.interface`: interface name (e.g., `wg0`).
@@ -94,6 +95,8 @@ services:
     volumes:
       - ./config.yaml:/app/config.yaml:ro
       - ./wireguard:/etc/wireguard
+      # Optional: mount TLS certs and set server.tls_cert / server.tls_key in config
+      # - ./certs:/app/certs:ro
     ports:
       - 51820:51820/udp
       - 51821:51821

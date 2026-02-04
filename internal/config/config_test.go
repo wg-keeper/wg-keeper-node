@@ -158,3 +158,75 @@ wireguard:
 		t.Fatalf("expected error for missing interface")
 	}
 }
+
+func TestLoadConfigTLSEnabled(t *testing.T) {
+	path := writeConfigFile(t, `
+server:
+  port: "51821"
+  tls_cert: "/etc/certs/server.pem"
+  tls_key: "/etc/certs/server-key.pem"
+auth:
+  api_key: "test-key"
+wireguard:
+  interface: "wg0"
+  subnet: "10.0.0.0/24"
+  server_ip: "10.0.0.1"
+  listen_port: 51820
+  routing:
+    wan_interface: "eth0"
+`)
+	t.Setenv("NODE_CONFIG", path)
+
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if !cfg.TLSEnabled() {
+		t.Fatalf("expected TLS enabled")
+	}
+	if cfg.TLSCertFile != "/etc/certs/server.pem" || cfg.TLSKeyFile != "/etc/certs/server-key.pem" {
+		t.Fatalf("unexpected TLS paths: cert=%q key=%q", cfg.TLSCertFile, cfg.TLSKeyFile)
+	}
+}
+
+func TestLoadConfigTLSOnlyCert(t *testing.T) {
+	path := writeConfigFile(t, `
+server:
+  port: "51821"
+  tls_cert: "/etc/certs/server.pem"
+auth:
+  api_key: "test-key"
+wireguard:
+  interface: "wg0"
+  subnet: "10.0.0.0/24"
+  listen_port: 51820
+  routing:
+    wan_interface: "eth0"
+`)
+	t.Setenv("NODE_CONFIG", path)
+
+	if _, err := LoadConfig(); err == nil {
+		t.Fatalf("expected error when only tls_cert is set")
+	}
+}
+
+func TestLoadConfigTLSOnlyKey(t *testing.T) {
+	path := writeConfigFile(t, `
+server:
+  port: "51821"
+  tls_key: "/etc/certs/server-key.pem"
+auth:
+  api_key: "test-key"
+wireguard:
+  interface: "wg0"
+  subnet: "10.0.0.0/24"
+  listen_port: 51820
+  routing:
+    wan_interface: "eth0"
+`)
+	t.Setenv("NODE_CONFIG", path)
+
+	if _, err := LoadConfig(); err == nil {
+		t.Fatalf("expected error when only tls_key is set")
+	}
+}

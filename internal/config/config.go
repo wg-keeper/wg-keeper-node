@@ -16,6 +16,8 @@ const errMsgRequired = "%s is required"
 type Config struct {
 	Port         int
 	APIKey       string
+	TLSCertFile  string // path to TLS certificate (PEM); if set, TLSKeyFile must be set too
+	TLSKeyFile   string // path to TLS private key (PEM)
 	WGInterface  string
 	WGSubnet     string
 	WGServerIP   string
@@ -29,7 +31,9 @@ type wireguardRouting struct {
 
 type fileConfig struct {
 	Server struct {
-		Port string `yaml:"port"`
+		Port    string `yaml:"port"`
+		TLSCert string `yaml:"tls_cert"`
+		TLSKey  string `yaml:"tls_key"`
 	} `yaml:"server"`
 	Auth struct {
 		APIKey string `yaml:"api_key"`
@@ -101,16 +105,43 @@ func loadConfigFile(path string) (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	tlsCert, tlsKey, err := parseOptionalTLS(fc.Server.TLSCert, fc.Server.TLSKey)
+	if err != nil {
+		return Config{}, err
+	}
 
 	return Config{
 		Port:         portValue,
 		APIKey:       apiKey,
+		TLSCertFile:  tlsCert,
+		TLSKeyFile:   tlsKey,
 		WGInterface:  wgInterface,
 		WGSubnet:     wgSubnet,
 		WGServerIP:   wgServerIP,
 		WGListenPort: wgListenPort,
 		WANInterface: wanInterface,
 	}, nil
+}
+
+// TLSEnabled reports whether TLS (HTTPS) is configured (both cert and key are set).
+func (c Config) TLSEnabled() bool {
+	return c.TLSCertFile != "" && c.TLSKeyFile != ""
+}
+
+// parseOptionalTLS returns cert and key paths. Both must be set or both unset; otherwise returns error.
+func parseOptionalTLS(cert, key string) (certPath, keyPath string, err error) {
+	certPath = strings.TrimSpace(cert)
+	keyPath = strings.TrimSpace(key)
+	if certPath == "" && keyPath == "" {
+		return "", "", nil
+	}
+	if certPath == "" {
+		return "", "", fmt.Errorf("server.tls_key is set but server.tls_cert is missing; set both for HTTPS")
+	}
+	if keyPath == "" {
+		return "", "", fmt.Errorf("server.tls_cert is set but server.tls_key is missing; set both for HTTPS")
+	}
+	return certPath, keyPath, nil
 }
 
 func (c Config) Addr() string {
