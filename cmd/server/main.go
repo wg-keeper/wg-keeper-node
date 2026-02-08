@@ -27,12 +27,7 @@ const (
 
 func main() {
 	debug := isDebugEnabled()
-	if debug {
-		log.Printf("time=%s level=warn msg=\"DEBUG is enabled; do not use in production (error details exposed to clients)\"", time.Now().Format(time.RFC3339))
-		gin.SetMode(gin.DebugMode)
-	} else {
-		gin.SetMode(gin.ReleaseMode)
-	}
+	setupGinMode(debug)
 	log.SetFlags(0)
 
 	cfg, err := config.LoadConfig()
@@ -62,35 +57,11 @@ func main() {
 
 	addr := cfg.Addr()
 	now := time.Now().Format(time.RFC3339)
-	protocol := "http"
-	if cfg.TLSEnabled() {
-		protocol = "https"
-	}
+	protocol := protocolFromConfig(cfg)
 	log.Printf("time=%s level=info msg=\"starting\" service=%s version=%s", now, version.Name, version.Version)
 	log.Printf("time=%s level=info msg=\"listening\" addr=%s protocol=%s", now, addr, protocol)
-	subnetsLog := cfg.WGSubnet
-	if cfg.WGSubnet6 != "" {
-		if subnetsLog != "" {
-			subnetsLog += "," + cfg.WGSubnet6
-		} else {
-			subnetsLog = cfg.WGSubnet6
-		}
-	}
-	log.Printf("time=%s level=info msg=\"wireguard ready\" iface=%s listen=%d subnets=%s", now, cfg.WGInterface, cfg.WGListenPort, subnetsLog)
-	router := server.NewRouter(cfg.APIKey, cfg.AllowedNets, wgService, debug)
-	httpServer := &http.Server{
-		Addr:              addr,
-		Handler:           router,
-		ReadHeaderTimeout: 10 * time.Second,
-		ReadTimeout:      30 * time.Second,
-		WriteTimeout:      30 * time.Second,
-		IdleTimeout:       120 * time.Second,
-	}
-	if cfg.TLSEnabled() {
-		httpServer.TLSConfig = &tls.Config{
-			MinVersion: tls.VersionTLS12,
-		}
-	}
+	log.Printf("time=%s level=info msg=\"wireguard ready\" iface=%s listen=%d subnets=%s", now, cfg.WGInterface, cfg.WGListenPort, formatSubnetsLog(cfg))
+	httpServer := newHTTPServer(cfg, addr, wgService, debug)
 
 	serverErr := make(chan error, 1)
 	go func() {
@@ -102,7 +73,7 @@ func main() {
 
 	select {
 	case err := <-serverErr:
-		if err != nil && err != http.ErrServerClosed {
+		if isFatalServerError(err) {
 			log.Fatalf("time=%s level=error msg=\"server error\" error=%v", time.Now().Format(time.RFC3339), err)
 		}
 	case sig := <-shutdownSignal:
@@ -115,6 +86,51 @@ func main() {
 	if err := httpServer.Shutdown(ctx); err != nil {
 		log.Printf("time=%s level=error msg=\"shutdown error\" error=%v", time.Now().Format(time.RFC3339), err)
 	}
+}
+
+func setupGinMode(debug bool) {
+	if debug {
+		log.Printf("time=%s level=warn msg=\"DEBUG is enabled; do not use in production (error details exposed to clients)\"", time.Now().Format(time.RFC3339))
+		gin.SetMode(gin.DebugMode)
+		return
+	}
+	gin.SetMode(gin.ReleaseMode)
+}
+
+func formatSubnetsLog(cfg config.Config) string {
+	if cfg.WGSubnet6 == "" {
+		return cfg.WGSubnet
+	}
+	if cfg.WGSubnet != "" {
+		return cfg.WGSubnet + "," + cfg.WGSubnet6
+	}
+	return cfg.WGSubnet6
+}
+
+func protocolFromConfig(cfg config.Config) string {
+	if cfg.TLSEnabled() {
+		return "https"
+	}
+	return "http"
+}
+
+func isFatalServerError(err error) bool {
+	return err != nil && err != http.ErrServerClosed
+}
+
+func newHTTPServer(cfg config.Config, addr string, wgService *wireguard.WireGuardService, debug bool) *http.Server {
+	srv := &http.Server{
+		Addr:              addr,
+		Handler:           server.NewRouter(cfg.APIKey, cfg.AllowedNets, wgService, debug),
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:      30 * time.Second,
+		WriteTimeout:     30 * time.Second,
+		IdleTimeout:      120 * time.Second,
+	}
+	if cfg.TLSEnabled() {
+		srv.TLSConfig = &tls.Config{MinVersion: tls.VersionTLS12}
+	}
+	return srv
 }
 
 func runServer(cfg config.Config, srv *http.Server) error {

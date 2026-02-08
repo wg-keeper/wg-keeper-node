@@ -15,6 +15,7 @@ const (
 	ipServerTest       = "10.0.0.1"
 	ipPeerTest         = "10.0.0.2"
 	peerIDTest         = "peer-1"
+	subnetTestCIDR     = "10.0.0.0/24"
 )
 
 type fakeWGClient struct {
@@ -42,8 +43,8 @@ func ipNet(t *testing.T, ip string) net.IPNet {
 	return *n
 }
 
-func TestValidateAddressFamilies_EmptyReturnsNodeFamilies(t *testing.T) {
-	_, subnet4, _ := net.ParseCIDR("10.0.0.0/24")
+func TestValidateAddressFamiliesEmptyReturnsNodeFamilies(t *testing.T) {
+	_, subnet4, _ := net.ParseCIDR(subnetTestCIDR)
 	svc := &WireGuardService{subnet4: subnet4, serverIP4: net.ParseIP("10.0.0.1"), store: NewPeerStore()}
 	families, err := svc.ValidateAddressFamilies(nil)
 	if err != nil {
@@ -54,8 +55,8 @@ func TestValidateAddressFamilies_EmptyReturnsNodeFamilies(t *testing.T) {
 	}
 }
 
-func TestValidateAddressFamilies_Unsupported(t *testing.T) {
-	_, subnet4, _ := net.ParseCIDR("10.0.0.0/24")
+func TestValidateAddressFamiliesUnsupported(t *testing.T) {
+	_, subnet4, _ := net.ParseCIDR(subnetTestCIDR)
 	svc := &WireGuardService{subnet4: subnet4, serverIP4: net.ParseIP("10.0.0.1"), store: NewPeerStore()}
 	_, err := svc.ValidateAddressFamilies([]string{FamilyIPv6})
 	if !errors.Is(err, ErrUnsupportedAddressFamily) {
@@ -64,7 +65,7 @@ func TestValidateAddressFamilies_Unsupported(t *testing.T) {
 }
 
 func TestResolveServerIP4(t *testing.T) {
-	_, subnet, _ := net.ParseCIDR("10.0.0.0/24")
+	_, subnet, _ := net.ParseCIDR(subnetTestCIDR)
 
 	ip, err := resolveServerIP4(subnet, "10.0.0.10")
 	if err != nil {

@@ -9,7 +9,7 @@ import (
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 )
 
-func TestStoredToRecord_AllowedIPs(t *testing.T) {
+func TestStoredToRecordAllowedIPs(t *testing.T) {
 	key, _ := wgtypes.GenerateKey()
 	stored := peerRecordStored{
 		PeerID:     "peer-1",
@@ -32,7 +32,7 @@ func TestStoredToRecord_AllowedIPs(t *testing.T) {
 	}
 }
 
-func TestSaveToFile_AndLoadFromFile_Roundtrip(t *testing.T) {
+func TestSaveToFileAndLoadFromFileRoundtrip(t *testing.T) {
 	key, _ := wgtypes.GenerateKey()
 	store := NewPeerStore()
 	store.Set(PeerRecord{
