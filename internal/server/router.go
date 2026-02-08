@@ -41,6 +41,8 @@ func registerRoutes(router *gin.Engine, apiKey string, wgService *wireguard.Wire
 	router.GET("/stats", apiKeyMiddleware(apiKey), statsHandler(wgService, debug))
 
 	peers := router.Group("/peers", apiKeyMiddleware(apiKey))
+	peers.GET("", listPeersHandler(wgService, debug))
+	peers.GET("/:peerId", getPeerHandler(wgService, debug))
 	peers.POST("", createPeerHandler(wgService, debug))
 	peers.DELETE("/:peerId", deletePeerHandler(wgService, debug))
 }
