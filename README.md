@@ -68,6 +68,7 @@ Key settings:
 
 - `server.port`: API port (HTTP or HTTPS depending on TLS).
 - `server.tls_cert`, `server.tls_key`: optional paths to TLS certificate and private key (PEM). If both are set, the API runs over HTTPS with TLS 1.2+; otherwise it runs over HTTP.
+- `server.allowed_ips`: optional list of IPv4 addresses or CIDRs (e.g. `10.0.0.0/24`, `192.168.1.1`). When set, only requests from these IPs are accepted for protected endpoints (stats, peers); `/health` remains reachable from any IP. Omit or leave empty to allow all.
 - `auth.api_key`: API key for protected endpoints.
 - `DEBUG`: set to `true` or `1` to enable debug mode (verbose Gin logs and detailed error messages in API responses). Do not use in production.
 - `wireguard.interface`: interface name (e.g., `wg0`).

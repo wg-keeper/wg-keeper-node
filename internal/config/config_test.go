@@ -1,6 +1,7 @@
 package config
 
 import (
+	"net"
 	"os"
 	"path/filepath"
 	"testing"
@@ -228,5 +229,68 @@ wireguard:
 
 	if _, err := LoadConfig(); err == nil {
 		t.Fatalf("expected error when only tls_key is set")
+	}
+}
+
+func TestLoadConfigAllowedIPs(t *testing.T) {
+	path := writeConfigFile(t, `
+server:
+  port: "51821"
+  allowed_ips:
+    - "10.0.0.0/24"
+    - "192.168.1.1"
+auth:
+  api_key: "test-key"
+wireguard:
+  interface: "wg0"
+  subnet: "10.0.0.0/24"
+  server_ip: "10.0.0.1"
+  listen_port: 51820
+  routing:
+    wan_interface: "eth0"
+`)
+	t.Setenv("NODE_CONFIG", path)
+
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if cfg.AllowedNets == nil || len(cfg.AllowedNets) != 2 {
+		t.Fatalf("expected 2 allowed nets, got %v", cfg.AllowedNets)
+	}
+	// 10.0.0.0/24
+	if !cfg.AllowedNets[0].Contains(net.ParseIP("10.0.0.1")) {
+		t.Fatal("expected first net to contain 10.0.0.1")
+	}
+	// 192.168.1.1/32
+	if !cfg.AllowedNets[1].Contains(net.ParseIP("192.168.1.1")) {
+		t.Fatal("expected second net to contain 192.168.1.1")
+	}
+	if cfg.AllowedNets[1].Contains(net.ParseIP("192.168.1.2")) {
+		t.Fatal("expected /32 to not contain 192.168.1.2")
+	}
+}
+
+func TestLoadConfigAllowedIPsInvalid(t *testing.T) {
+	path := writeConfigFile(t, `
+server:
+  port: "51821"
+  allowed_ips:
+    - "10.0.0.0/24"
+    - "not-an-ip"
+auth:
+  api_key: "test-key"
+wireguard:
+  interface: "wg0"
+  subnet: "10.0.0.0/24"
+  server_ip: "10.0.0.1"
+  listen_port: 51820
+  routing:
+    wan_interface: "eth0"
+`)
+	t.Setenv("NODE_CONFIG", path)
+
+	if _, err := LoadConfig(); err == nil {
+		t.Fatalf("expected error for invalid allowed_ips entry")
 	}
 }

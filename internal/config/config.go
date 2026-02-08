@@ -18,6 +18,7 @@ type Config struct {
 	APIKey       string
 	TLSCertFile  string // path to TLS certificate (PEM); if set, TLSKeyFile must be set too
 	TLSKeyFile   string // path to TLS private key (PEM)
+	AllowedNets  []*net.IPNet // optional: if non-empty, only these IPs/CIDRs may reach the API
 	WGInterface  string
 	WGSubnet     string
 	WGServerIP   string
@@ -31,9 +32,10 @@ type wireguardRouting struct {
 
 type fileConfig struct {
 	Server struct {
-		Port    string `yaml:"port"`
-		TLSCert string `yaml:"tls_cert"`
-		TLSKey  string `yaml:"tls_key"`
+		Port       string   `yaml:"port"`
+		TLSCert    string   `yaml:"tls_cert"`
+		TLSKey     string   `yaml:"tls_key"`
+		AllowedIPs []string  `yaml:"allowed_ips"`
 	} `yaml:"server"`
 	Auth struct {
 		APIKey string `yaml:"api_key"`
@@ -109,12 +111,17 @@ func loadConfigFile(path string) (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	allowedNets, err := parseAllowedIPs("server.allowed_ips", fc.Server.AllowedIPs)
+	if err != nil {
+		return Config{}, err
+	}
 
 	return Config{
 		Port:         portValue,
 		APIKey:       apiKey,
 		TLSCertFile:  tlsCert,
 		TLSKeyFile:   tlsKey,
+		AllowedNets:  allowedNets,
 		WGInterface:  wgInterface,
 		WGSubnet:     wgSubnet,
 		WGServerIP:   wgServerIP,
@@ -196,4 +203,39 @@ func optionalIPv4(field, value string) (string, error) {
 		return "", fmt.Errorf("%s must be a valid IPv4 address", field)
 	}
 	return out, nil
+}
+
+// parseAllowedIPs parses a list of IPv4 addresses or CIDRs (e.g. "10.0.0.1" or "10.0.0.0/24").
+// Returns nil when the list is empty or nil (no whitelist). Each entry is normalized to *net.IPNet.
+func parseAllowedIPs(field string, entries []string) ([]*net.IPNet, error) {
+	if len(entries) == 0 {
+		return nil, nil
+	}
+	nets := make([]*net.IPNet, 0, len(entries))
+	for i, s := range entries {
+		s = strings.TrimSpace(s)
+		if s == "" {
+			continue
+		}
+		if strings.Contains(s, "/") {
+			_, ipNet, err := net.ParseCIDR(s)
+			if err != nil {
+				return nil, fmt.Errorf("%s[%d]: invalid CIDR %q: %w", field, i, s, err)
+			}
+			if ipNet.IP.To4() == nil {
+				return nil, fmt.Errorf("%s[%d]: only IPv4 is supported", field, i)
+			}
+			nets = append(nets, ipNet)
+		} else {
+			ip := net.ParseIP(s)
+			if ip == nil || ip.To4() == nil {
+				return nil, fmt.Errorf("%s[%d]: invalid IPv4 address %q", field, i, s)
+			}
+			nets = append(nets, &net.IPNet{IP: ip, Mask: net.CIDRMask(32, 32)})
+		}
+	}
+	if len(nets) == 0 {
+		return nil, nil
+	}
+	return nets, nil
 }
