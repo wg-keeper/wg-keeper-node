@@ -572,7 +572,17 @@ func allocateOneIPv6(subnet *net.IPNet, used map[string]struct{}) (net.IPNet, er
 	if err != nil {
 		return net.IPNet{}, err
 	}
+	ones, _ := subnet.Mask.Size()
+	maxIter := 0
+	if ones < 112 {
+		maxIter = maxIPv6PeersReported
+	}
+	n := 0
 	for ip := start; !ipAfterIPv6(ip, end); ip = nextIPv6(ip) {
+		if maxIter > 0 && n >= maxIter {
+			break
+		}
+		n++
 		if _, exists := used[ip.String()]; exists {
 			continue
 		}
@@ -667,12 +677,9 @@ func ipv6Range(subnet *net.IPNet) (net.IP, net.IP, error) {
 	if ip == nil {
 		return nil, nil, errors.New("invalid IPv6 subnet")
 	}
-	ones, bits := subnet.Mask.Size()
+	_, bits := subnet.Mask.Size()
 	if bits != 128 {
 		return nil, nil, errors.New("IPv6 mask must be 128 bits")
-	}
-	if ones < 112 {
-		return nil, nil, errors.New("wireguard.subnet6 prefix must be /112 or larger (e.g. /112, /120, /128)")
 	}
 	network := make(net.IP, 16)
 	copy(network, ip)
@@ -763,10 +770,24 @@ func possiblePeerCount(subnet *net.IPNet, serverIP net.IP) (int, error) {
 	return total, nil
 }
 
+const maxIPv6PeersReported = 65536
+
 func possiblePeerCountIPv6(subnet *net.IPNet, serverIP net.IP) (int, error) {
 	start, end, err := ipv6Range(subnet)
 	if err != nil {
 		return 0, err
+	}
+	ones, _ := subnet.Mask.Size()
+	if ones < 112 {
+		// Subnet too large to iterate; report capped count
+		count := maxIPv6PeersReported
+		if serverIP != nil {
+			ip := serverIP.To16()
+			if ip != nil && !ipAfterIPv6(start, ip) && !ipAfterIPv6(ip, end) {
+				count--
+			}
+		}
+		return count, nil
 	}
 	n := 0
 	for ip := start; !ipAfterIPv6(ip, end); ip = nextIPv6(ip) {
@@ -774,8 +795,8 @@ func possiblePeerCountIPv6(subnet *net.IPNet, serverIP net.IP) (int, error) {
 			continue
 		}
 		n++
-		if n > 65536 {
-			return 65536, nil
+		if n > maxIPv6PeersReported {
+			return maxIPv6PeersReported, nil
 		}
 	}
 	return n, nil
