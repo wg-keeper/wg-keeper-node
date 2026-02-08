@@ -499,6 +499,30 @@ func (s *WireGuardService) rotatePeer(peerID string, record PeerRecord, expiresA
 
 // allocateIPs allocates one address per requested family. families must be validated (e.g. via ValidateAddressFamilies).
 func (s *WireGuardService) allocateIPs(families []string) ([]net.IPNet, error) {
+	used, err := s.collectUsedIPs()
+	if err != nil {
+		return nil, err
+	}
+	wantIPv4, wantIPv6 := familiesRequested(families)
+	var out []net.IPNet
+	if wantIPv4 && s.subnet4 != nil {
+		ipNet, err := allocateOneIPv4(s.subnet4, used)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, ipNet)
+	}
+	if wantIPv6 && s.subnet6 != nil {
+		ipNet, err := allocateOneIPv6(s.subnet6, used)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, ipNet)
+	}
+	return out, nil
+}
+
+func (s *WireGuardService) collectUsedIPs() (map[string]struct{}, error) {
 	used := make(map[string]struct{})
 	if s.serverIP4 != nil {
 		used[s.serverIP4.String()] = struct{}{}
@@ -506,13 +530,11 @@ func (s *WireGuardService) allocateIPs(families []string) ([]net.IPNet, error) {
 	if s.serverIP6 != nil {
 		used[s.serverIP6.String()] = struct{}{}
 	}
-
 	for _, record := range s.store.List() {
 		for _, aip := range record.AllowedIPs {
 			used[aip.IP.String()] = struct{}{}
 		}
 	}
-
 	device, err := s.client.Device(s.deviceName)
 	if err != nil {
 		return nil, err
@@ -522,58 +544,49 @@ func (s *WireGuardService) allocateIPs(families []string) ([]net.IPNet, error) {
 			used[allowed.IP.String()] = struct{}{}
 		}
 	}
+	return used, nil
+}
 
-	allocateIPv4 := false
-	allocateIPv6 := false
+func familiesRequested(families []string) (wantIPv4, wantIPv6 bool) {
 	for _, f := range families {
 		if f == FamilyIPv4 {
-			allocateIPv4 = true
+			wantIPv4 = true
 		}
 		if f == FamilyIPv6 {
-			allocateIPv6 = true
+			wantIPv6 = true
 		}
 	}
+	return wantIPv4, wantIPv6
+}
 
-	var out []net.IPNet
-	if allocateIPv4 && s.subnet4 != nil {
-		start, end, err := ipv4Range(s.subnet4)
-		if err != nil {
-			return nil, err
-		}
-		var found bool
-		for ip := start; !ipAfter(ip, end); ip = nextIPv4(ip) {
-			if _, exists := used[ip.String()]; exists {
-				continue
-			}
-			out = append(out, net.IPNet{IP: ip, Mask: net.CIDRMask(32, 32)})
-			used[ip.String()] = struct{}{}
-			found = true
-			break
-		}
-		if !found {
-			return nil, ErrNoAvailableIP
-		}
+func allocateOneIPv4(subnet *net.IPNet, used map[string]struct{}) (net.IPNet, error) {
+	start, end, err := ipv4Range(subnet)
+	if err != nil {
+		return net.IPNet{}, err
 	}
-	if allocateIPv6 && s.subnet6 != nil {
-		start, end, err := ipv6Range(s.subnet6)
-		if err != nil {
-			return nil, err
+	for ip := start; !ipAfter(ip, end); ip = nextIPv4(ip) {
+		if _, exists := used[ip.String()]; exists {
+			continue
 		}
-		var found bool
-		for ip := start; !ipAfterIPv6(ip, end); ip = nextIPv6(ip) {
-			if _, exists := used[ip.String()]; exists {
-				continue
-			}
-			out = append(out, net.IPNet{IP: ip, Mask: net.CIDRMask(128, 128)})
-			used[ip.String()] = struct{}{}
-			found = true
-			break
-		}
-		if !found {
-			return nil, ErrNoAvailableIP
-		}
+		used[ip.String()] = struct{}{}
+		return net.IPNet{IP: ip, Mask: net.CIDRMask(32, 32)}, nil
 	}
-	return out, nil
+	return net.IPNet{}, ErrNoAvailableIP
+}
+
+func allocateOneIPv6(subnet *net.IPNet, used map[string]struct{}) (net.IPNet, error) {
+	start, end, err := ipv6Range(subnet)
+	if err != nil {
+		return net.IPNet{}, err
+	}
+	for ip := start; !ipAfterIPv6(ip, end); ip = nextIPv6(ip) {
+		if _, exists := used[ip.String()]; exists {
+			continue
+		}
+		used[ip.String()] = struct{}{}
+		return net.IPNet{IP: ip, Mask: net.CIDRMask(128, 128)}, nil
+	}
+	return net.IPNet{}, ErrNoAvailableIP
 }
 
 func resolveServerIP4(subnet *net.IPNet, serverIP string) (net.IP, error) {

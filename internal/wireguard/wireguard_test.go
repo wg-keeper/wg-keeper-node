@@ -45,7 +45,7 @@ func ipNet(t *testing.T, ip string) net.IPNet {
 
 func TestValidateAddressFamiliesEmptyReturnsNodeFamilies(t *testing.T) {
 	_, subnet4, _ := net.ParseCIDR(subnetTestCIDR)
-	svc := &WireGuardService{subnet4: subnet4, serverIP4: net.ParseIP("10.0.0.1"), store: NewPeerStore()}
+	svc := &WireGuardService{subnet4: subnet4, serverIP4: net.ParseIP(ipServerTest), store: NewPeerStore()}
 	families, err := svc.ValidateAddressFamilies(nil)
 	if err != nil {
 		t.Fatalf(msgUnexpectedError, err)
@@ -57,7 +57,7 @@ func TestValidateAddressFamiliesEmptyReturnsNodeFamilies(t *testing.T) {
 
 func TestValidateAddressFamiliesUnsupported(t *testing.T) {
 	_, subnet4, _ := net.ParseCIDR(subnetTestCIDR)
-	svc := &WireGuardService{subnet4: subnet4, serverIP4: net.ParseIP("10.0.0.1"), store: NewPeerStore()}
+	svc := &WireGuardService{subnet4: subnet4, serverIP4: net.ParseIP(ipServerTest), store: NewPeerStore()}
 	_, err := svc.ValidateAddressFamilies([]string{FamilyIPv6})
 	if !errors.Is(err, ErrUnsupportedAddressFamily) {
 		t.Fatalf("expected ErrUnsupportedAddressFamily, got %v", err)
