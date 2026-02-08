@@ -88,7 +88,7 @@ If the process is not running as root, `./wireguard/<interface>.conf` is used in
 ```
 services:
   wireguard:
-    image: ghcr.io/wg-keeper/node:0.0.1
+    image: ghcr.io/wg-keeper/node:0.0.2
     restart: always
     cap_add:
       - NET_ADMIN
