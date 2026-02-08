@@ -70,12 +70,13 @@ type WireGuardInfo struct {
 
 // PeerListItem is a minimal peer entry for list responses.
 type PeerListItem struct {
-	PeerID           string     `json:"peerId"`
-	AllowedIP        string     `json:"allowedIP"`
-	PublicKey        string     `json:"publicKey"`
-	Active           bool       `json:"active"`
-	LastHandshakeAt  *time.Time `json:"lastHandshakeAt"`
-	CreatedAt        string     `json:"createdAt"`
+	PeerID          string     `json:"peerId"`
+	AllowedIP       string     `json:"allowedIP"`
+	PublicKey       string     `json:"publicKey"`
+	Active          bool       `json:"active"`
+	LastHandshakeAt *time.Time `json:"lastHandshakeAt"`
+	CreatedAt       string     `json:"createdAt"`
+	ExpiresAt       *string    `json:"expiresAt,omitempty"` // RFC3339, empty if permanent
 }
 
 // PeerDetail extends PeerListItem with traffic stats for single-peer responses.
@@ -113,9 +114,9 @@ func NewWireGuardService(cfg config.Config) (*WireGuardService, error) {
 	}, nil
 }
 
-func (s *WireGuardService) EnsurePeer(peerID string) (PeerInfo, error) {
+func (s *WireGuardService) EnsurePeer(peerID string, expiresAt *time.Time) (PeerInfo, error) {
 	if record, ok := s.store.Get(peerID); ok {
-		return s.rotatePeer(peerID, record)
+		return s.rotatePeer(peerID, record, expiresAt)
 	}
 
 	allowedIP, err := s.allocateIP()
@@ -150,6 +151,7 @@ func (s *WireGuardService) EnsurePeer(peerID string) (PeerInfo, error) {
 		PublicKey: publicKey,
 		AllowedIP: allowedIP,
 		CreatedAt: time.Now().UTC(),
+		ExpiresAt: expiresAt,
 	})
 
 	return PeerInfo{
@@ -289,6 +291,11 @@ func peerRecordToListItem(rec PeerRecord, devicePeer wgtypes.Peer, now time.Time
 	if rec.CreatedAt.IsZero() {
 		createdAt = ""
 	}
+	var expiresAt *string
+	if rec.ExpiresAt != nil {
+		s := rec.ExpiresAt.UTC().Format(time.RFC3339)
+		expiresAt = &s
+	}
 	return PeerListItem{
 		PeerID:          rec.PeerID,
 		AllowedIP:       rec.AllowedIP.String(),
@@ -296,10 +303,11 @@ func peerRecordToListItem(rec PeerRecord, devicePeer wgtypes.Peer, now time.Time
 		Active:          active,
 		LastHandshakeAt: lastHandshake,
 		CreatedAt:       createdAt,
+		ExpiresAt:       expiresAt,
 	}
 }
 
-func (s *WireGuardService) rotatePeer(peerID string, record PeerRecord) (PeerInfo, error) {
+func (s *WireGuardService) rotatePeer(peerID string, record PeerRecord, expiresAt *time.Time) (PeerInfo, error) {
 	privateKey, err := wgtypes.GeneratePrivateKey()
 	if err != nil {
 		return PeerInfo{}, err
@@ -330,11 +338,17 @@ func (s *WireGuardService) rotatePeer(peerID string, record PeerRecord) (PeerInf
 		return PeerInfo{}, err
 	}
 
+	// Use new expiresAt if provided, otherwise keep existing
+	effectiveExpiresAt := expiresAt
+	if effectiveExpiresAt == nil {
+		effectiveExpiresAt = record.ExpiresAt
+	}
 	s.store.Set(PeerRecord{
 		PeerID:    peerID,
 		PublicKey: publicKey,
 		AllowedIP: record.AllowedIP,
 		CreatedAt: record.CreatedAt,
+		ExpiresAt: effectiveExpiresAt,
 	})
 
 	return PeerInfo{

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"time"
 
 	"github.com/wg-keeper/wg-keeper-node/internal/wireguard"
 
@@ -13,7 +14,8 @@ import (
 const errMsgPeerIDMustBeUUIDv4 = "peerId must be uuid v4"
 
 type peerRequest struct {
-	PeerID string `json:"peerId" binding:"required"`
+	PeerID    string  `json:"peerId" binding:"required"`
+	ExpiresAt *string `json:"expiresAt,omitempty"` // RFC3339; omit = permanent peer
 }
 
 type peerResponse struct {
@@ -61,8 +63,13 @@ func createPeerHandler(wgService wgPeerService, debug bool) gin.HandlerFunc {
 			writeError(c, http.StatusBadRequest, errMsgPeerIDMustBeUUIDv4, "invalid_peer_id", debug, nil)
 			return
 		}
+		expiresAt, err := parseExpiresAt(req.ExpiresAt)
+		if err != nil {
+			writeError(c, http.StatusBadRequest, err.Error(), "invalid_expires_at", debug, err)
+			return
+		}
 
-		info, err := wgService.EnsurePeer(req.PeerID)
+		info, err := wgService.EnsurePeer(req.PeerID, expiresAt)
 		if err != nil {
 			status, message, reason := peerError(err)
 			log.Printf("peer create failed: reason=%s", reason)
@@ -145,6 +152,24 @@ func getPeerHandler(wgService wgPeerDetailProvider, debug bool) gin.HandlerFunc 
 	}
 }
 
+// parseExpiresAt parses optional RFC3339 date. If nil or empty, returns (nil, nil).
+// If provided, must be in the future; otherwise returns error.
+func parseExpiresAt(s *string) (*time.Time, error) {
+	if s == nil || *s == "" {
+		return nil, nil
+	}
+	t, err := time.Parse(time.RFC3339, *s)
+	if err != nil {
+		return nil, errors.New("expiresAt must be RFC3339")
+	}
+	utc := t.UTC()
+	now := time.Now().UTC()
+	if !utc.After(now) {
+		return nil, errors.New("expiresAt must be in the future")
+	}
+	return &utc, nil
+}
+
 func peerError(err error) (int, string, string) {
 	if errors.Is(err, wireguard.ErrPeerNotFound) {
 		return http.StatusNotFound, "peer not found", "peer_not_found"
@@ -156,6 +181,7 @@ func peerError(err error) (int, string, string) {
 	return http.StatusInternalServerError, "wireguard operation failed", "wireguard_error"
 }
 
+// writeError sends a JSON error. When debug is true, err.Error() is included as "detail"; set debug=false in production to avoid leaking internal details.
 func writeError(c *gin.Context, status int, message, code string, debug bool, err error) {
 	out := gin.H{"error": message, "code": code}
 	if debug && err != nil {
@@ -165,7 +191,7 @@ func writeError(c *gin.Context, status int, message, code string, debug bool, er
 }
 
 type wgPeerService interface {
-	EnsurePeer(string) (wireguard.PeerInfo, error)
+	EnsurePeer(peerID string, expiresAt *time.Time) (wireguard.PeerInfo, error)
 	DeletePeer(string) error
 	ServerInfo() (string, int, error)
 }

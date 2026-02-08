@@ -28,6 +28,7 @@ const (
 func main() {
 	debug := isDebugEnabled()
 	if debug {
+		log.Printf("time=%s level=warn msg=\"DEBUG is enabled; do not use in production (error details exposed to clients)\"", time.Now().Format(time.RFC3339))
 		gin.SetMode(gin.DebugMode)
 	} else {
 		gin.SetMode(gin.ReleaseMode)
@@ -54,6 +55,10 @@ func main() {
 	if err != nil {
 		log.Fatalf("init WireGuard: %v", err)
 	}
+
+	appCtx, appCancel := context.WithCancel(context.Background())
+	defer appCancel()
+	go wgService.RunExpiredPeersCleanup(appCtx, time.Minute)
 
 	addr := cfg.Addr()
 	now := time.Now().Format(time.RFC3339)
@@ -96,6 +101,7 @@ func main() {
 		log.Printf("time=%s level=info msg=\"shutdown signal received\" signal=%s", time.Now().Format(time.RFC3339), sig)
 	}
 
+	appCancel()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if err := httpServer.Shutdown(ctx); err != nil {
