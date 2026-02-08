@@ -213,29 +213,38 @@ func parseAllowedIPs(field string, entries []string) ([]*net.IPNet, error) {
 	}
 	nets := make([]*net.IPNet, 0, len(entries))
 	for i, s := range entries {
-		s = strings.TrimSpace(s)
-		if s == "" {
-			continue
+		ipNet, err := parseOneAllowedIP(field, i, strings.TrimSpace(s))
+		if err != nil {
+			return nil, err
 		}
-		if strings.Contains(s, "/") {
-			_, ipNet, err := net.ParseCIDR(s)
-			if err != nil {
-				return nil, fmt.Errorf("%s[%d]: invalid CIDR %q: %w", field, i, s, err)
-			}
-			if ipNet.IP.To4() == nil {
-				return nil, fmt.Errorf("%s[%d]: only IPv4 is supported", field, i)
-			}
+		if ipNet != nil {
 			nets = append(nets, ipNet)
-		} else {
-			ip := net.ParseIP(s)
-			if ip == nil || ip.To4() == nil {
-				return nil, fmt.Errorf("%s[%d]: invalid IPv4 address %q", field, i, s)
-			}
-			nets = append(nets, &net.IPNet{IP: ip, Mask: net.CIDRMask(32, 32)})
 		}
 	}
 	if len(nets) == 0 {
 		return nil, nil
 	}
 	return nets, nil
+}
+
+// parseOneAllowedIP parses a single IPv4 or CIDR entry. Returns (nil, nil) for empty s (skip).
+func parseOneAllowedIP(field string, index int, s string) (*net.IPNet, error) {
+	if s == "" {
+		return nil, nil
+	}
+	if strings.Contains(s, "/") {
+		_, ipNet, err := net.ParseCIDR(s)
+		if err != nil {
+			return nil, fmt.Errorf("%s[%d]: invalid CIDR %q: %w", field, index, s, err)
+		}
+		if ipNet.IP.To4() == nil {
+			return nil, fmt.Errorf("%s[%d]: only IPv4 is supported", field, index)
+		}
+		return ipNet, nil
+	}
+	ip := net.ParseIP(s)
+	if ip == nil || ip.To4() == nil {
+		return nil, fmt.Errorf("%s[%d]: invalid IPv4 address %q", field, index, s)
+	}
+	return &net.IPNet{IP: ip, Mask: net.CIDRMask(32, 32)}, nil
 }

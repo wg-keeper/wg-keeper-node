@@ -7,6 +7,8 @@ import (
 	"testing"
 )
 
+const msgExpectedNoError = "expected no error, got %v"
+
 func writeConfigFile(t *testing.T, content string) string {
 	t.Helper()
 	dir := t.TempDir()
@@ -35,7 +37,7 @@ wireguard:
 
 	cfg, err := LoadConfig()
 	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
+		t.Fatalf(msgExpectedNoError, err)
 	}
 	if cfg.Port != 51821 {
 		t.Fatalf("expected port 51821, got %d", cfg.Port)
@@ -180,7 +182,7 @@ wireguard:
 
 	cfg, err := LoadConfig()
 	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
+		t.Fatalf(msgExpectedNoError, err)
 	}
 	if !cfg.TLSEnabled() {
 		t.Fatalf("expected TLS enabled")
@@ -253,7 +255,7 @@ wireguard:
 
 	cfg, err := LoadConfig()
 	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
+		t.Fatalf(msgExpectedNoError, err)
 	}
 	if cfg.AllowedNets == nil || len(cfg.AllowedNets) != 2 {
 		t.Fatalf("expected 2 allowed nets, got %v", cfg.AllowedNets)
