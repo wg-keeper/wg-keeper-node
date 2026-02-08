@@ -3,6 +3,7 @@ package wireguard
 import (
 	"net"
 	"sync"
+	"time"
 
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 )
@@ -11,6 +12,7 @@ type PeerRecord struct {
 	PeerID    string
 	PublicKey wgtypes.Key
 	AllowedIP net.IPNet
+	CreatedAt time.Time
 }
 
 type PeerStore struct {

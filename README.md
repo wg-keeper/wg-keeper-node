@@ -133,6 +133,8 @@ All protected endpoints require the `X-API-Key` header with the value from `auth
 
 - `GET /health` — status check (public)
 - `GET /stats` — WireGuard statistics (protected)
+- `GET /peers` — list all peers (protected)
+- `GET /peers/:peerId` — get peer details and traffic stats (protected)
 - `POST /peers` — create or rotate a peer (protected)
 - `DELETE /peers/:peerId` — delete peer (protected)
 
@@ -158,6 +160,14 @@ All protected endpoints require the `X-API-Key` header with the value from `auth
   "startedAt": "2026-02-02T00:06:06Z"
 }
 ```
+
+### List peers
+
+`GET /peers` returns `{ "peers": [ ... ] }`. Each item has `peerId`, `allowedIP`, `publicKey`, `active`, `lastHandshakeAt`, `createdAt`.
+
+### Get peer
+
+`GET /peers/:peerId` returns `{ "peer": { ... } }` with the same fields plus `receiveBytes` and `transmitBytes`.
 
 ### Create peer example (UUIDv4)
 

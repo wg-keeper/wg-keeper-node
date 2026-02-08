@@ -10,6 +10,8 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+const errMsgPeerIDMustBeUUIDv4 = "peerId must be uuid v4"
+
 type peerRequest struct {
 	PeerID string `json:"peerId" binding:"required"`
 }
@@ -56,7 +58,7 @@ func createPeerHandler(wgService wgPeerService, debug bool) gin.HandlerFunc {
 			return
 		}
 		if !IsUUIDv4(req.PeerID) {
-			writeError(c, http.StatusBadRequest, "peerId must be uuid v4", "invalid_peer_id", debug, nil)
+			writeError(c, http.StatusBadRequest, errMsgPeerIDMustBeUUIDv4, "invalid_peer_id", debug, nil)
 			return
 		}
 
@@ -96,7 +98,7 @@ func deletePeerHandler(wgService wgPeerService, debug bool) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		peerID := c.Param("peerId")
 		if !IsUUIDv4(peerID) {
-			writeError(c, http.StatusBadRequest, "peerId must be uuid v4", "invalid_peer_id", debug, nil)
+			writeError(c, http.StatusBadRequest, errMsgPeerIDMustBeUUIDv4, "invalid_peer_id", debug, nil)
 			return
 		}
 
@@ -109,6 +111,37 @@ func deletePeerHandler(wgService wgPeerService, debug bool) gin.HandlerFunc {
 
 		log.Printf("peer deleted")
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
+	}
+}
+
+func listPeersHandler(wgService wgPeersListProvider, debug bool) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		list, err := wgService.ListPeers()
+		if err != nil {
+			writeError(c, http.StatusInternalServerError, "peers list unavailable", "peers_list_unavailable", debug, err)
+			return
+		}
+		if list == nil {
+			list = []wireguard.PeerListItem{}
+		}
+		c.JSON(http.StatusOK, gin.H{"peers": list})
+	}
+}
+
+func getPeerHandler(wgService wgPeerDetailProvider, debug bool) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		peerID := c.Param("peerId")
+		if !IsUUIDv4(peerID) {
+			writeError(c, http.StatusBadRequest, errMsgPeerIDMustBeUUIDv4, "invalid_peer_id", debug, nil)
+			return
+		}
+		detail, err := wgService.GetPeer(peerID)
+		if err != nil {
+			status, message, reason := peerError(err)
+			writeError(c, status, message, reason, debug, err)
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"peer": detail})
 	}
 }
 
@@ -140,4 +173,12 @@ type wgPeerService interface {
 // statsProvider provides WireGuard stats (single-method interface naming).
 type statsProvider interface {
 	Stats() (wireguard.Stats, error)
+}
+
+type wgPeersListProvider interface {
+	ListPeers() ([]wireguard.PeerListItem, error)
+}
+
+type wgPeerDetailProvider interface {
+	GetPeer(string) (*wireguard.PeerDetail, error)
 }

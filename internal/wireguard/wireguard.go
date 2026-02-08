@@ -68,6 +68,23 @@ type WireGuardInfo struct {
 	ServerIP   string `json:"serverIp"`
 }
 
+// PeerListItem is a minimal peer entry for list responses.
+type PeerListItem struct {
+	PeerID           string     `json:"peerId"`
+	AllowedIP        string     `json:"allowedIP"`
+	PublicKey        string     `json:"publicKey"`
+	Active           bool       `json:"active"`
+	LastHandshakeAt  *time.Time `json:"lastHandshakeAt"`
+	CreatedAt        string     `json:"createdAt"`
+}
+
+// PeerDetail extends PeerListItem with traffic stats for single-peer responses.
+type PeerDetail struct {
+	PeerListItem
+	ReceiveBytes  int64 `json:"receiveBytes"`
+	TransmitBytes int64 `json:"transmitBytes"`
+}
+
 func NewWireGuardService(cfg config.Config) (*WireGuardService, error) {
 	client, err := wgctrl.New()
 	if err != nil {
@@ -132,6 +149,7 @@ func (s *WireGuardService) EnsurePeer(peerID string) (PeerInfo, error) {
 		PeerID:    peerID,
 		PublicKey: publicKey,
 		AllowedIP: allowedIP,
+		CreatedAt: time.Now().UTC(),
 	})
 
 	return PeerInfo{
@@ -212,6 +230,75 @@ func (s *WireGuardService) Stats() (Stats, error) {
 	}, nil
 }
 
+func (s *WireGuardService) ListPeers() ([]PeerListItem, error) {
+	device, err := s.client.Device(s.deviceName)
+	if err != nil {
+		return nil, err
+	}
+	devicePeerByKey := make(map[wgtypes.Key]wgtypes.Peer)
+	for _, p := range device.Peers {
+		devicePeerByKey[p.PublicKey] = p
+	}
+
+	now := time.Now()
+	list := make([]PeerListItem, 0, len(s.store.List()))
+	for _, rec := range s.store.List() {
+		item := peerRecordToListItem(rec, devicePeerByKey[rec.PublicKey], now)
+		list = append(list, item)
+	}
+	return list, nil
+}
+
+func (s *WireGuardService) GetPeer(peerID string) (*PeerDetail, error) {
+	record, ok := s.store.Get(peerID)
+	if !ok {
+		return nil, ErrPeerNotFound
+	}
+	device, err := s.client.Device(s.deviceName)
+	if err != nil {
+		return nil, err
+	}
+	var devicePeer wgtypes.Peer
+	for i := range device.Peers {
+		if device.Peers[i].PublicKey == record.PublicKey {
+			devicePeer = device.Peers[i]
+			break
+		}
+	}
+	now := time.Now()
+	item := peerRecordToListItem(record, devicePeer, now)
+	detail := &PeerDetail{
+		PeerListItem:   item,
+		ReceiveBytes:  devicePeer.ReceiveBytes,
+		TransmitBytes: devicePeer.TransmitBytes,
+	}
+	return detail, nil
+}
+
+func peerRecordToListItem(rec PeerRecord, devicePeer wgtypes.Peer, now time.Time) PeerListItem {
+	var lastHandshake *time.Time
+	active := false
+	if !devicePeer.LastHandshakeTime.IsZero() {
+		t := devicePeer.LastHandshakeTime
+		lastHandshake = &t
+		if now.Sub(devicePeer.LastHandshakeTime) <= activePeerWindow {
+			active = true
+		}
+	}
+	createdAt := rec.CreatedAt.UTC().Format(time.RFC3339)
+	if rec.CreatedAt.IsZero() {
+		createdAt = ""
+	}
+	return PeerListItem{
+		PeerID:          rec.PeerID,
+		AllowedIP:       rec.AllowedIP.String(),
+		PublicKey:       rec.PublicKey.String(),
+		Active:          active,
+		LastHandshakeAt: lastHandshake,
+		CreatedAt:       createdAt,
+	}
+}
+
 func (s *WireGuardService) rotatePeer(peerID string, record PeerRecord) (PeerInfo, error) {
 	privateKey, err := wgtypes.GeneratePrivateKey()
 	if err != nil {
@@ -247,6 +334,7 @@ func (s *WireGuardService) rotatePeer(peerID string, record PeerRecord) (PeerInf
 		PeerID:    peerID,
 		PublicKey: publicKey,
 		AllowedIP: record.AllowedIP,
+		CreatedAt: record.CreatedAt,
 	})
 
 	return PeerInfo{
