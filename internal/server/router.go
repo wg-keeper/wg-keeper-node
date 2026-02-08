@@ -2,6 +2,7 @@ package server
 
 import (
 	"fmt"
+	"net"
 	"time"
 
 	"github.com/wg-keeper/wg-keeper-node/internal/wireguard"
@@ -11,7 +12,7 @@ import (
 
 const debugKey = "debug"
 
-func NewRouter(apiKey string, wgService *wireguard.WireGuardService, debug bool) *gin.Engine {
+func NewRouter(apiKey string, allowedNets []*net.IPNet, wgService *wireguard.WireGuardService, debug bool) *gin.Engine {
 	router := gin.New()
 	router.Use(debugMiddleware(debug))
 	router.Use(gin.LoggerWithFormatter(func(param gin.LogFormatterParams) string {
@@ -25,7 +26,7 @@ func NewRouter(apiKey string, wgService *wireguard.WireGuardService, debug bool)
 			param.ClientIP,
 		)
 	}), gin.Recovery())
-	registerRoutes(router, apiKey, wgService, debug)
+	registerRoutes(router, apiKey, allowedNets, wgService, debug)
 	return router
 }
 
@@ -36,11 +37,11 @@ func debugMiddleware(debug bool) gin.HandlerFunc {
 	}
 }
 
-func registerRoutes(router *gin.Engine, apiKey string, wgService *wireguard.WireGuardService, debug bool) {
+func registerRoutes(router *gin.Engine, apiKey string, allowedNets []*net.IPNet, wgService *wireguard.WireGuardService, debug bool) {
 	router.GET("/health", healthHandler)
-	router.GET("/stats", apiKeyMiddleware(apiKey), statsHandler(wgService, debug))
+	router.GET("/stats", ipWhitelistMiddleware(allowedNets), apiKeyMiddleware(apiKey), statsHandler(wgService, debug))
 
-	peers := router.Group("/peers", apiKeyMiddleware(apiKey))
+	peers := router.Group("/peers", ipWhitelistMiddleware(allowedNets), apiKeyMiddleware(apiKey))
 	peers.GET("", listPeersHandler(wgService, debug))
 	peers.GET("/:peerId", getPeerHandler(wgService, debug))
 	peers.POST("", createPeerHandler(wgService, debug))

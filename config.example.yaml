@@ -3,6 +3,10 @@ server:
   # Optional: enable HTTPS (set both paths)
   # tls_cert: "/app/certs/fullchain.pem"
   # tls_key: "/app/certs/privkey.pem"
+  # Optional: allow API access only from these IPv4 addresses or CIDRs (omit or leave empty to allow all)
+  # allowed_ips:
+  #   - "10.0.0.0/24"
+  #   - "192.168.1.1"
 auth:
   api_key: "changeme"
 wireguard:
