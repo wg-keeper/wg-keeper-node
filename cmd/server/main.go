@@ -66,8 +66,12 @@ func main() {
 	log.Printf("time=%s level=info msg=\"wireguard ready\" iface=%s listen=%d subnet=%s", now, cfg.WGInterface, cfg.WGListenPort, cfg.WGSubnet)
 	router := server.NewRouter(cfg.APIKey, cfg.AllowedNets, wgService, debug)
 	httpServer := &http.Server{
-		Addr:    addr,
-		Handler: router,
+		Addr:              addr,
+		Handler:           router,
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:      30 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       120 * time.Second,
 	}
 	if cfg.TLSEnabled() {
 		httpServer.TLSConfig = &tls.Config{

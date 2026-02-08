@@ -8,7 +8,8 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-const apiKeyHeader = "X-API-Key"
+// apiKeyHeader is the HTTP header name for the API key (not a credential).
+const apiKeyHeader = "X-API-Key" // #nosec G101
 
 func apiKeyMiddleware(apiKey string) gin.HandlerFunc {
 	return func(c *gin.Context) {
