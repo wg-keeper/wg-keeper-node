@@ -50,7 +50,7 @@ func assertJSONErrorCode(t *testing.T, body []byte, wantCode string) {
 
 type mockWGService struct {
 	statsFunc      func() (wireguard.Stats, error)
-	ensurePeerFunc func(peerID string, expiresAt *time.Time) (wireguard.PeerInfo, error)
+	ensurePeerFunc func(peerID string, expiresAt *time.Time, addressFamilies []string) (wireguard.PeerInfo, error)
 	deletePeerFunc func(string) error
 	serverInfoFunc func() (string, int, error)
 	listPeersFunc  func() ([]wireguard.PeerListItem, error)
@@ -61,8 +61,8 @@ func (m mockWGService) Stats() (wireguard.Stats, error) {
 	return m.statsFunc()
 }
 
-func (m mockWGService) EnsurePeer(peerID string, expiresAt *time.Time) (wireguard.PeerInfo, error) {
-	return m.ensurePeerFunc(peerID, expiresAt)
+func (m mockWGService) EnsurePeer(peerID string, expiresAt *time.Time, addressFamilies []string) (wireguard.PeerInfo, error) {
+	return m.ensurePeerFunc(peerID, expiresAt, addressFamilies)
 }
 
 func (m mockWGService) DeletePeer(peerID string) error {
@@ -140,7 +140,7 @@ func TestCreatePeerInvalidPeerID(t *testing.T) {
 func TestCreatePeerEnsureError(t *testing.T) {
 	router := newTestRouter()
 	router.POST(pathPeers, apiKeyMiddleware(testAPIKey), createPeerHandler(mockWGService{
-		ensurePeerFunc: func(string, *time.Time) (wireguard.PeerInfo, error) {
+		ensurePeerFunc: func(string, *time.Time, []string) (wireguard.PeerInfo, error) {
 			return wireguard.PeerInfo{}, wireguard.ErrNoAvailableIP
 		},
 	}, false))
@@ -149,10 +149,24 @@ func TestCreatePeerEnsureError(t *testing.T) {
 	assertStatus(t, rec, http.StatusConflict)
 }
 
+func TestCreatePeerUnsupportedAddressFamily(t *testing.T) {
+	router := newTestRouter()
+	router.POST(pathPeers, apiKeyMiddleware(testAPIKey), createPeerHandler(mockWGService{
+		ensurePeerFunc: func(string, *time.Time, []string) (wireguard.PeerInfo, error) {
+			return wireguard.PeerInfo{}, wireguard.ErrUnsupportedAddressFamily
+		},
+	}, false))
+
+	body := []byte(`{"peerId":"550e8400-e29b-41d4-a716-446655440000","addressFamilies":["IPv6"]}`)
+	rec := performRequest(t, router, http.MethodPost, pathPeers, body, testAPIKey)
+	assertStatus(t, rec, http.StatusBadRequest)
+	assertJSONErrorCode(t, rec.Body.Bytes(), "unsupported_address_family")
+}
+
 func TestCreatePeerServerInfoError(t *testing.T) {
 	router := newTestRouter()
 	router.POST(pathPeers, apiKeyMiddleware(testAPIKey), createPeerHandler(mockWGService{
-		ensurePeerFunc: func(string, *time.Time) (wireguard.PeerInfo, error) {
+		ensurePeerFunc: func(string, *time.Time, []string) (wireguard.PeerInfo, error) {
 			return wireguard.PeerInfo{PeerID: "id"}, nil
 		},
 		serverInfoFunc: func() (string, int, error) {
@@ -167,8 +181,8 @@ func TestCreatePeerServerInfoError(t *testing.T) {
 func TestCreatePeerSuccess(t *testing.T) {
 	router := newTestRouter()
 	router.POST(pathPeers, apiKeyMiddleware(testAPIKey), createPeerHandler(mockWGService{
-		ensurePeerFunc: func(string, *time.Time) (wireguard.PeerInfo, error) {
-			return wireguard.PeerInfo{PeerID: "peer-1", PublicKey: "pub", PrivateKey: "priv", PresharedKey: "psk", AllowedIP: testAllowedIP}, nil
+		ensurePeerFunc: func(string, *time.Time, []string) (wireguard.PeerInfo, error) {
+			return wireguard.PeerInfo{PeerID: "peer-1", PublicKey: "pub", PrivateKey: "priv", PresharedKey: "psk", AllowedIPs: []string{testAllowedIP}, AddressFamilies: []string{"IPv4"}}, nil
 		},
 		serverInfoFunc: func() (string, int, error) {
 			return "server-pub", 51820, nil
@@ -245,7 +259,7 @@ func TestListPeersSuccess(t *testing.T) {
 	router.GET(pathPeers, apiKeyMiddleware(testAPIKey), listPeersHandler(mockWGService{
 		listPeersFunc: func() ([]wireguard.PeerListItem, error) {
 			return []wireguard.PeerListItem{
-				{PeerID: "p1", AllowedIP: testAllowedIP, PublicKey: "pk1", Active: true, CreatedAt: "2025-01-01T00:00:00Z"},
+				{PeerID: "p1", AllowedIPs: []string{testAllowedIP}, AddressFamilies: []string{"IPv4"}, IPv6Enabled: false, PublicKey: "pk1", Active: true, CreatedAt: "2025-01-01T00:00:00Z"},
 			}, nil
 		},
 	}, false))
@@ -291,7 +305,7 @@ func TestGetPeerSuccess(t *testing.T) {
 	router.GET(pathPeersPeerID, apiKeyMiddleware(testAPIKey), getPeerHandler(mockWGService{
 		getPeerFunc: func(peerID string) (*wireguard.PeerDetail, error) {
 			return &wireguard.PeerDetail{
-				PeerListItem:   wireguard.PeerListItem{PeerID: peerID, AllowedIP: testAllowedIP, PublicKey: "pk", Active: true, CreatedAt: "2025-01-01T00:00:00Z"},
+				PeerListItem:   wireguard.PeerListItem{PeerID: peerID, AllowedIPs: []string{testAllowedIP}, AddressFamilies: []string{"IPv4"}, IPv6Enabled: false, PublicKey: "pk", Active: true, CreatedAt: "2025-01-01T00:00:00Z"},
 				ReceiveBytes:   1000,
 				TransmitBytes:  2000,
 			}, nil

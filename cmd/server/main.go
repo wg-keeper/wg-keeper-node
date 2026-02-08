@@ -68,7 +68,15 @@ func main() {
 	}
 	log.Printf("time=%s level=info msg=\"starting\" service=%s version=%s", now, version.Name, version.Version)
 	log.Printf("time=%s level=info msg=\"listening\" addr=%s protocol=%s", now, addr, protocol)
-	log.Printf("time=%s level=info msg=\"wireguard ready\" iface=%s listen=%d subnet=%s", now, cfg.WGInterface, cfg.WGListenPort, cfg.WGSubnet)
+	subnetsLog := cfg.WGSubnet
+	if cfg.WGSubnet6 != "" {
+		if subnetsLog != "" {
+			subnetsLog += "," + cfg.WGSubnet6
+		} else {
+			subnetsLog = cfg.WGSubnet6
+		}
+	}
+	log.Printf("time=%s level=info msg=\"wireguard ready\" iface=%s listen=%d subnets=%s", now, cfg.WGInterface, cfg.WGListenPort, subnetsLog)
 	router := server.NewRouter(cfg.APIKey, cfg.AllowedNets, wgService, debug)
 	httpServer := &http.Server{
 		Addr:              addr,

@@ -20,8 +20,10 @@ type Config struct {
 	TLSKeyFile   string // path to TLS private key (PEM)
 	AllowedNets  []*net.IPNet // optional: if non-empty, only these IPs/CIDRs may reach the API
 	WGInterface  string
-	WGSubnet     string
-	WGServerIP   string
+	WGSubnet     string   // IPv4 CIDR (optional if WGSubnet6 is set)
+	WGServerIP   string   // IPv4 server address (optional)
+	WGSubnet6    string   // IPv6 CIDR (optional if WGSubnet is set)
+	WGServerIP6  string   // IPv6 server address (optional)
 	WGListenPort int
 	WANInterface string
 }
@@ -44,6 +46,8 @@ type fileConfig struct {
 		Interface  string           `yaml:"interface"`
 		Subnet     string           `yaml:"subnet"`
 		ServerIP   string           `yaml:"server_ip"`
+		Subnet6    string           `yaml:"subnet6"`
+		ServerIP6  string           `yaml:"server_ip6"`
 		ListenPort int              `yaml:"listen_port"`
 		Routing    wireguardRouting `yaml:"routing"`
 	} `yaml:"wireguard"`
@@ -87,9 +91,26 @@ func loadConfigFile(path string) (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
-	wgSubnet, err := requireCIDR("wireguard.subnet", fc.WireGuard.Subnet)
+	wgSubnet, err := optionalCIDR("wireguard.subnet", fc.WireGuard.Subnet)
 	if err != nil {
 		return Config{}, err
+	}
+	wgSubnet6, err := optionalCIDR("wireguard.subnet6", fc.WireGuard.Subnet6)
+	if err != nil {
+		return Config{}, err
+	}
+	if wgSubnet == "" && wgSubnet6 == "" {
+		return Config{}, fmt.Errorf("at least one of wireguard.subnet or wireguard.subnet6 is required")
+	}
+	if wgSubnet != "" {
+		if _, ipNet, _ := net.ParseCIDR(wgSubnet); ipNet != nil && ipNet.IP.To4() == nil {
+			return Config{}, fmt.Errorf("wireguard.subnet must be an IPv4 CIDR")
+		}
+	}
+	if wgSubnet6 != "" {
+		if _, ipNet, _ := net.ParseCIDR(wgSubnet6); ipNet != nil && ipNet.IP.To4() != nil {
+			return Config{}, fmt.Errorf("wireguard.subnet6 must be an IPv6 CIDR")
+		}
 	}
 	wgInterface, err := requireString("wireguard.interface", fc.WireGuard.Interface)
 	if err != nil {
@@ -100,6 +121,10 @@ func loadConfigFile(path string) (Config, error) {
 		return Config{}, err
 	}
 	wgServerIP, err := optionalIPv4("wireguard.server_ip", fc.WireGuard.ServerIP)
+	if err != nil {
+		return Config{}, err
+	}
+	wgServerIP6, err := optionalIPv6("wireguard.server_ip6", fc.WireGuard.ServerIP6)
 	if err != nil {
 		return Config{}, err
 	}
@@ -125,6 +150,8 @@ func loadConfigFile(path string) (Config, error) {
 		WGInterface:  wgInterface,
 		WGSubnet:     wgSubnet,
 		WGServerIP:   wgServerIP,
+		WGSubnet6:    wgSubnet6,
+		WGServerIP6:  wgServerIP6,
 		WGListenPort: wgListenPort,
 		WANInterface: wanInterface,
 	}, nil
@@ -193,6 +220,17 @@ func requireCIDR(field, value string) (string, error) {
 	return out, nil
 }
 
+func optionalCIDR(field, value string) (string, error) {
+	out := strings.TrimSpace(value)
+	if out == "" {
+		return "", nil
+	}
+	if _, _, err := net.ParseCIDR(out); err != nil {
+		return "", fmt.Errorf("%s must be a valid CIDR", field)
+	}
+	return out, nil
+}
+
 func optionalIPv4(field, value string) (string, error) {
 	out := strings.TrimSpace(value)
 	if out == "" {
@@ -205,7 +243,19 @@ func optionalIPv4(field, value string) (string, error) {
 	return out, nil
 }
 
-// parseAllowedIPs parses a list of IPv4 addresses or CIDRs (e.g. "10.0.0.1" or "10.0.0.0/24").
+func optionalIPv6(field, value string) (string, error) {
+	out := strings.TrimSpace(value)
+	if out == "" {
+		return "", nil
+	}
+	parsed := net.ParseIP(out)
+	if parsed == nil || parsed.To4() != nil {
+		return "", fmt.Errorf("%s must be a valid IPv6 address", field)
+	}
+	return out, nil
+}
+
+// parseAllowedIPs parses a list of IPv4 or IPv6 addresses or CIDRs.
 // Returns nil when the list is empty or nil (no whitelist). Each entry is normalized to *net.IPNet.
 func parseAllowedIPs(field string, entries []string) ([]*net.IPNet, error) {
 	if len(entries) == 0 {
@@ -227,7 +277,7 @@ func parseAllowedIPs(field string, entries []string) ([]*net.IPNet, error) {
 	return nets, nil
 }
 
-// parseOneAllowedIP parses a single IPv4 or CIDR entry. Returns (nil, nil) for empty s (skip).
+// parseOneAllowedIP parses a single IPv4/IPv6 or CIDR entry. Returns (nil, nil) for empty s (skip).
 func parseOneAllowedIP(field string, index int, s string) (*net.IPNet, error) {
 	if s == "" {
 		return nil, nil
@@ -237,14 +287,15 @@ func parseOneAllowedIP(field string, index int, s string) (*net.IPNet, error) {
 		if err != nil {
 			return nil, fmt.Errorf("%s[%d]: invalid CIDR %q: %w", field, index, s, err)
 		}
-		if ipNet.IP.To4() == nil {
-			return nil, fmt.Errorf("%s[%d]: only IPv4 is supported", field, index)
-		}
 		return ipNet, nil
 	}
 	ip := net.ParseIP(s)
-	if ip == nil || ip.To4() == nil {
-		return nil, fmt.Errorf("%s[%d]: invalid IPv4 address %q", field, index, s)
+	if ip == nil {
+		return nil, fmt.Errorf("%s[%d]: invalid IP address %q", field, index, s)
 	}
-	return &net.IPNet{IP: ip, Mask: net.CIDRMask(32, 32)}, nil
+	bits := 32
+	if ip.To4() == nil {
+		bits = 128
+	}
+	return &net.IPNet{IP: ip, Mask: net.CIDRMask(bits, bits)}, nil
 }

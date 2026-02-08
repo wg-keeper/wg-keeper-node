@@ -14,16 +14,19 @@ import (
 const errMsgPeerIDMustBeUUIDv4 = "peerId must be uuid v4"
 
 type peerRequest struct {
-	PeerID    string  `json:"peerId" binding:"required"`
-	ExpiresAt *string `json:"expiresAt,omitempty"` // RFC3339; omit = permanent peer
+	PeerID          string   `json:"peerId" binding:"required"`
+	ExpiresAt       *string  `json:"expiresAt,omitempty"`       // RFC3339; omit = permanent peer
+	AddressFamilies []string `json:"addressFamilies,omitempty"` // optional: ["IPv4"], ["IPv6"], or ["IPv4","IPv6"]; omit = all node supports
 }
 
 type peerResponse struct {
-	PeerID       string `json:"peerId"`
-	PublicKey    string `json:"publicKey"`
-	PrivateKey   string `json:"privateKey"`
-	PresharedKey string `json:"presharedKey"`
-	AllowedIP    string `json:"allowedIp"`
+	PeerID          string   `json:"peerId"`
+	PublicKey       string   `json:"publicKey"`
+	PrivateKey      string   `json:"privateKey"`
+	PresharedKey    string   `json:"presharedKey"`
+	AllowedIPs      []string `json:"allowedIPs"`
+	AddressFamilies []string `json:"addressFamilies"`
+	IPv6Enabled     bool     `json:"ipv6Enabled"`
 }
 
 type serverInfoResponse struct {
@@ -69,7 +72,7 @@ func createPeerHandler(wgService wgPeerService, debug bool) gin.HandlerFunc {
 			return
 		}
 
-		info, err := wgService.EnsurePeer(req.PeerID, expiresAt)
+		info, err := wgService.EnsurePeer(req.PeerID, expiresAt, req.AddressFamilies)
 		if err != nil {
 			status, message, reason := peerError(err)
 			log.Printf("peer create failed: reason=%s", reason)
@@ -91,11 +94,13 @@ func createPeerHandler(wgService wgPeerService, debug bool) gin.HandlerFunc {
 				ListenPort: serverListenPort,
 			},
 			Peer: peerResponse{
-				PeerID:       info.PeerID,
-				PublicKey:    info.PublicKey,
-				PrivateKey:   info.PrivateKey,
-				PresharedKey: info.PresharedKey,
-				AllowedIP:    info.AllowedIP,
+				PeerID:          info.PeerID,
+				PublicKey:       info.PublicKey,
+				PrivateKey:      info.PrivateKey,
+				PresharedKey:    info.PresharedKey,
+				AllowedIPs:      info.AllowedIPs,
+				AddressFamilies: info.AddressFamilies,
+				IPv6Enabled:     len(info.AddressFamilies) > 0 && contains(info.AddressFamilies, wireguard.FamilyIPv6),
 			},
 		})
 	}
@@ -177,8 +182,20 @@ func peerError(err error) (int, string, string) {
 	if errors.Is(err, wireguard.ErrNoAvailableIP) {
 		return http.StatusConflict, "no available ip addresses", "no_available_ip"
 	}
+	if errors.Is(err, wireguard.ErrUnsupportedAddressFamily) {
+		return http.StatusBadRequest, "requested address family is not supported by this node", "unsupported_address_family"
+	}
 
 	return http.StatusInternalServerError, "wireguard operation failed", "wireguard_error"
+}
+
+func contains(slice []string, v string) bool {
+	for _, x := range slice {
+		if x == v {
+			return true
+		}
+	}
+	return false
 }
 
 // writeError sends a JSON error. When debug is true, err.Error() is included as "detail"; set debug=false in production to avoid leaking internal details.
@@ -191,7 +208,7 @@ func writeError(c *gin.Context, status int, message, code string, debug bool, er
 }
 
 type wgPeerService interface {
-	EnsurePeer(peerID string, expiresAt *time.Time) (wireguard.PeerInfo, error)
+	EnsurePeer(peerID string, expiresAt *time.Time, addressFamilies []string) (wireguard.PeerInfo, error)
 	DeletePeer(string) error
 	ServerInfo() (string, int, error)
 }
