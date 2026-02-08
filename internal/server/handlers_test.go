@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/wg-keeper/wg-keeper-node/internal/wireguard"
 
@@ -25,20 +26,20 @@ const (
 )
 
 type mockWGService struct {
-	statsFunc       func() (wireguard.Stats, error)
-	ensurePeerFunc  func(string) (wireguard.PeerInfo, error)
-	deletePeerFunc  func(string) error
-	serverInfoFunc  func() (string, int, error)
-	listPeersFunc   func() ([]wireguard.PeerListItem, error)
-	getPeerFunc     func(string) (*wireguard.PeerDetail, error)
+	statsFunc      func() (wireguard.Stats, error)
+	ensurePeerFunc func(peerID string, expiresAt *time.Time) (wireguard.PeerInfo, error)
+	deletePeerFunc func(string) error
+	serverInfoFunc func() (string, int, error)
+	listPeersFunc  func() ([]wireguard.PeerListItem, error)
+	getPeerFunc    func(string) (*wireguard.PeerDetail, error)
 }
 
 func (m mockWGService) Stats() (wireguard.Stats, error) {
 	return m.statsFunc()
 }
 
-func (m mockWGService) EnsurePeer(peerID string) (wireguard.PeerInfo, error) {
-	return m.ensurePeerFunc(peerID)
+func (m mockWGService) EnsurePeer(peerID string, expiresAt *time.Time) (wireguard.PeerInfo, error) {
+	return m.ensurePeerFunc(peerID, expiresAt)
 }
 
 func (m mockWGService) DeletePeer(peerID string) error {
@@ -142,7 +143,7 @@ func TestCreatePeerEnsureError(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	router.POST(pathPeers, apiKeyMiddleware("key"), createPeerHandler(mockWGService{
-		ensurePeerFunc: func(string) (wireguard.PeerInfo, error) {
+		ensurePeerFunc: func(string, *time.Time) (wireguard.PeerInfo, error) {
 			return wireguard.PeerInfo{}, wireguard.ErrNoAvailableIP
 		},
 	}, false))
@@ -158,7 +159,7 @@ func TestCreatePeerServerInfoError(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	router.POST(pathPeers, apiKeyMiddleware("key"), createPeerHandler(mockWGService{
-		ensurePeerFunc: func(string) (wireguard.PeerInfo, error) {
+		ensurePeerFunc: func(string, *time.Time) (wireguard.PeerInfo, error) {
 			return wireguard.PeerInfo{PeerID: "id"}, nil
 		},
 		serverInfoFunc: func() (string, int, error) {
@@ -177,7 +178,7 @@ func TestCreatePeerSuccess(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	router.POST(pathPeers, apiKeyMiddleware("key"), createPeerHandler(mockWGService{
-		ensurePeerFunc: func(string) (wireguard.PeerInfo, error) {
+		ensurePeerFunc: func(string, *time.Time) (wireguard.PeerInfo, error) {
 			return wireguard.PeerInfo{PeerID: "peer-1", PublicKey: "pub", PrivateKey: "priv", PresharedKey: "psk", AllowedIP: testAllowedIP}, nil
 		},
 		serverInfoFunc: func() (string, int, error) {
@@ -189,6 +190,25 @@ func TestCreatePeerSuccess(t *testing.T) {
 	rec := performRequest(t, router, http.MethodPost, pathPeers, body, "key")
 	if rec.Code != http.StatusOK {
 		t.Fatalf(msgExpected200Got, rec.Code)
+	}
+}
+
+func TestCreatePeerExpiresAtInPast(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.POST(pathPeers, apiKeyMiddleware("key"), createPeerHandler(mockWGService{}, false))
+
+	body := []byte(`{"peerId":"550e8400-e29b-41d4-a716-446655440000","expiresAt":"2020-01-01T00:00:00Z"}`)
+	rec := performRequest(t, router, http.MethodPost, pathPeers, body, "key")
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for expiresAt in the past, got %d", rec.Code)
+	}
+	var payload map[string]interface{}
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf(msgInvalidJSON, err)
+	}
+	if payload["code"] != "invalid_expires_at" {
+		t.Fatalf("expected code invalid_expires_at, got %v", payload["code"])
 	}
 }
 

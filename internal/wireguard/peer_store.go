@@ -13,6 +13,7 @@ type PeerRecord struct {
 	PublicKey wgtypes.Key
 	AllowedIP net.IPNet
 	CreatedAt time.Time
+	ExpiresAt *time.Time // nil = permanent peer
 }
 
 type PeerStore struct {
