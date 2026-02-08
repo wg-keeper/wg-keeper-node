@@ -48,7 +48,7 @@ func ipWhitelistMiddleware(allowedNets []*net.IPNet) gin.HandlerFunc {
 		}
 		clientIP := net.ParseIP(c.ClientIP())
 		if clientIP == nil {
-			c.JSON(http.StatusForbidden, gin.H{"error": "client IP could not be determined"})
+			c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
 			c.Abort()
 			return
 		}
@@ -58,7 +58,7 @@ func ipWhitelistMiddleware(allowedNets []*net.IPNet) gin.HandlerFunc {
 				return
 			}
 		}
-		c.JSON(http.StatusForbidden, gin.H{"error": "forbidden: IP not allowed"})
+		c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
 		c.Abort()
 	}
 }
