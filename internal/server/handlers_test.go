@@ -14,12 +14,14 @@ import (
 )
 
 const (
-	pathStats         = "/stats"
-	pathPeers         = "/peers"
-	pathPeersPeerID   = "/peers/:peerId"
-	msgExpected200Got = "expected 200, got %d"
-	msgExpected500Got = "expected 500, got %d"
-	msgInvalidJSON    = "invalid json: %v"
+	pathStats           = "/stats"
+	pathPeers           = "/peers"
+	pathPeersPeerID     = "/peers/:peerId"
+	pathPeersTestUUID   = "/peers/550e8400-e29b-41d4-a716-446655440000"
+	testAllowedIP       = "10.0.0.2/32"
+	msgExpected200Got   = "expected 200, got %d"
+	msgExpected500Got   = "expected 500, got %d"
+	msgInvalidJSON      = "invalid json: %v"
 )
 
 type mockWGService struct {
@@ -176,7 +178,7 @@ func TestCreatePeerSuccess(t *testing.T) {
 	router := gin.New()
 	router.POST(pathPeers, apiKeyMiddleware("key"), createPeerHandler(mockWGService{
 		ensurePeerFunc: func(string) (wireguard.PeerInfo, error) {
-			return wireguard.PeerInfo{PeerID: "peer-1", PublicKey: "pub", PrivateKey: "priv", PresharedKey: "psk", AllowedIP: "10.0.0.2/32"}, nil
+			return wireguard.PeerInfo{PeerID: "peer-1", PublicKey: "pub", PrivateKey: "priv", PresharedKey: "psk", AllowedIP: testAllowedIP}, nil
 		},
 		serverInfoFunc: func() (string, int, error) {
 			return "server-pub", 51820, nil
@@ -210,7 +212,7 @@ func TestDeletePeerNotFound(t *testing.T) {
 		},
 	}, false))
 
-	rec := performRequest(t, router, http.MethodDelete, "/peers/550e8400-e29b-41d4-a716-446655440000", nil, "key")
+	rec := performRequest(t, router, http.MethodDelete, pathPeersTestUUID, nil, "key")
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("expected 404, got %d", rec.Code)
 	}
@@ -225,7 +227,7 @@ func TestDeletePeerSuccess(t *testing.T) {
 		},
 	}, false))
 
-	rec := performRequest(t, router, http.MethodDelete, "/peers/550e8400-e29b-41d4-a716-446655440000", nil, "key")
+	rec := performRequest(t, router, http.MethodDelete, pathPeersTestUUID, nil, "key")
 	if rec.Code != http.StatusOK {
 		t.Fatalf(msgExpected200Got, rec.Code)
 	}
@@ -259,7 +261,7 @@ func TestListPeersSuccess(t *testing.T) {
 	router.GET(pathPeers, apiKeyMiddleware("key"), listPeersHandler(mockWGService{
 		listPeersFunc: func() ([]wireguard.PeerListItem, error) {
 			return []wireguard.PeerListItem{
-				{PeerID: "p1", AllowedIP: "10.0.0.2/32", PublicKey: "pk1", Active: true, CreatedAt: "2025-01-01T00:00:00Z"},
+				{PeerID: "p1", AllowedIP: testAllowedIP, PublicKey: "pk1", Active: true, CreatedAt: "2025-01-01T00:00:00Z"},
 			}, nil
 		},
 	}, false))
@@ -320,14 +322,14 @@ func TestGetPeerSuccess(t *testing.T) {
 	router.GET(pathPeersPeerID, apiKeyMiddleware("key"), getPeerHandler(mockWGService{
 		getPeerFunc: func(peerID string) (*wireguard.PeerDetail, error) {
 			return &wireguard.PeerDetail{
-				PeerListItem:   wireguard.PeerListItem{PeerID: peerID, AllowedIP: "10.0.0.2/32", PublicKey: "pk", Active: true, CreatedAt: "2025-01-01T00:00:00Z"},
+				PeerListItem:   wireguard.PeerListItem{PeerID: peerID, AllowedIP: testAllowedIP, PublicKey: "pk", Active: true, CreatedAt: "2025-01-01T00:00:00Z"},
 				ReceiveBytes:   1000,
 				TransmitBytes:  2000,
 			}, nil
 		},
 	}, false))
 
-	rec := performRequest(t, router, http.MethodGet, "/peers/550e8400-e29b-41d4-a716-446655440000", nil, "key")
+	rec := performRequest(t, router, http.MethodGet, pathPeersTestUUID, nil, "key")
 	if rec.Code != http.StatusOK {
 		t.Fatalf(msgExpected200Got, rec.Code)
 	}
@@ -351,7 +353,7 @@ func TestGetPeerNotFound(t *testing.T) {
 		},
 	}, false))
 
-	rec := performRequest(t, router, http.MethodGet, "/peers/550e8400-e29b-41d4-a716-446655440000", nil, "key")
+	rec := performRequest(t, router, http.MethodGet, pathPeersTestUUID, nil, "key")
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("expected 404, got %d", rec.Code)
 	}
@@ -375,7 +377,7 @@ func TestGetPeerUnauthorized(t *testing.T) {
 		getPeerFunc: func(string) (*wireguard.PeerDetail, error) { return nil, nil },
 	}, false))
 
-	rec := performRequest(t, router, http.MethodGet, "/peers/550e8400-e29b-41d4-a716-446655440000", nil, "")
+	rec := performRequest(t, router, http.MethodGet, pathPeersTestUUID, nil, "")
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("expected 401 without api key, got %d", rec.Code)
 	}

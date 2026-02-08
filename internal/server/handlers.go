@@ -10,6 +10,8 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+const errMsgPeerIDMustBeUUIDv4 = "peerId must be uuid v4"
+
 type peerRequest struct {
 	PeerID string `json:"peerId" binding:"required"`
 }
@@ -56,7 +58,7 @@ func createPeerHandler(wgService wgPeerService, debug bool) gin.HandlerFunc {
 			return
 		}
 		if !IsUUIDv4(req.PeerID) {
-			writeError(c, http.StatusBadRequest, "peerId must be uuid v4", "invalid_peer_id", debug, nil)
+			writeError(c, http.StatusBadRequest, errMsgPeerIDMustBeUUIDv4, "invalid_peer_id", debug, nil)
 			return
 		}
 
@@ -96,7 +98,7 @@ func deletePeerHandler(wgService wgPeerService, debug bool) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		peerID := c.Param("peerId")
 		if !IsUUIDv4(peerID) {
-			writeError(c, http.StatusBadRequest, "peerId must be uuid v4", "invalid_peer_id", debug, nil)
+			writeError(c, http.StatusBadRequest, errMsgPeerIDMustBeUUIDv4, "invalid_peer_id", debug, nil)
 			return
 		}
 
@@ -130,7 +132,7 @@ func getPeerHandler(wgService wgPeerDetailProvider, debug bool) gin.HandlerFunc 
 	return func(c *gin.Context) {
 		peerID := c.Param("peerId")
 		if !IsUUIDv4(peerID) {
-			writeError(c, http.StatusBadRequest, "peerId must be uuid v4", "invalid_peer_id", debug, nil)
+			writeError(c, http.StatusBadRequest, errMsgPeerIDMustBeUUIDv4, "invalid_peer_id", debug, nil)
 			return
 		}
 		detail, err := wgService.GetPeer(peerID)
