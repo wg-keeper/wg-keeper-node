@@ -1,2 +1,6 @@
 run:
   timeout: 5m
+
+linters:
+  enable:
+    - gosec
