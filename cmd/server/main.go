@@ -28,6 +28,7 @@ const (
 func main() {
 	debug := isDebugEnabled()
 	if debug {
+		log.Printf("time=%s level=warn msg=\"DEBUG is enabled; do not use in production (error details exposed to clients)\"", time.Now().Format(time.RFC3339))
 		gin.SetMode(gin.DebugMode)
 	} else {
 		gin.SetMode(gin.ReleaseMode)

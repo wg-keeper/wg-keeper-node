@@ -7,8 +7,9 @@ import (
 )
 
 // RunExpiredPeersCleanup runs a loop that periodically removes peers whose ExpiresAt is in the past.
-// It exits when ctx is cancelled.
+// It exits when ctx is canceled. First run is immediate; then every interval.
 func (s *WireGuardService) RunExpiredPeersCleanup(ctx context.Context, interval time.Duration) {
+	s.runCleanupSafe()
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
@@ -16,9 +17,19 @@ func (s *WireGuardService) RunExpiredPeersCleanup(ctx context.Context, interval 
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			s.cleanupExpiredPeers()
+			s.runCleanupSafe()
 		}
 	}
+}
+
+// runCleanupSafe runs cleanupExpiredPeers and recovers any panic so the cleanup goroutine keeps running.
+func (s *WireGuardService) runCleanupSafe() {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("cleanup panic (recovered): %v", r)
+		}
+	}()
+	s.cleanupExpiredPeers()
 }
 
 func (s *WireGuardService) cleanupExpiredPeers() {

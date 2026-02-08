@@ -181,6 +181,7 @@ func peerError(err error) (int, string, string) {
 	return http.StatusInternalServerError, "wireguard operation failed", "wireguard_error"
 }
 
+// writeError sends a JSON error. When debug is true, err.Error() is included as "detail"; set debug=false in production to avoid leaking internal details.
 func writeError(c *gin.Context, status int, message, code string, debug bool, err error) {
 	out := gin.H{"error": message, "code": code}
 	if debug && err != nil {
