@@ -22,6 +22,7 @@ const (
 	testAllowedIP     = "10.0.0.2/32"
 	testAPIKey        = "key"
 	createPeerBody    = `{"peerId":"550e8400-e29b-41d4-a716-446655440000"}`
+	msgInvalidJSON    = "invalid json: %v"
 )
 
 func newTestRouter() *gin.Engine {
@@ -40,7 +41,7 @@ func assertJSONErrorCode(t *testing.T, body []byte, wantCode string) {
 	t.Helper()
 	var payload map[string]interface{}
 	if err := json.Unmarshal(body, &payload); err != nil {
-		t.Fatalf("invalid json: %v", err)
+		t.Fatalf(msgInvalidJSON, err)
 	}
 	if got := payload["code"]; got != wantCode {
 		t.Fatalf("expected code %q, got %v", wantCode, got)
@@ -232,7 +233,7 @@ func TestStatsHandlerErrorWithDebugDetail(t *testing.T) {
 	assertStatus(t, rec, http.StatusInternalServerError)
 	var payload map[string]interface{}
 	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
-		t.Fatalf("invalid json: %v", err)
+		t.Fatalf(msgInvalidJSON, err)
 	}
 	if payload["detail"] != "internal failure" {
 		t.Fatalf("expected detail in debug mode, got %v", payload["detail"])
@@ -255,7 +256,7 @@ func TestListPeersSuccess(t *testing.T) {
 		Peers []wireguard.PeerListItem `json:"peers"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
-		t.Fatalf("invalid json: %v", err)
+		t.Fatalf(msgInvalidJSON, err)
 	}
 	if len(payload.Peers) != 1 || payload.Peers[0].PeerID != "p1" {
 		t.Fatalf("expected one peer p1, got %v", payload.Peers)
@@ -303,7 +304,7 @@ func TestGetPeerSuccess(t *testing.T) {
 		Peer wireguard.PeerDetail `json:"peer"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
-		t.Fatalf("invalid json: %v", err)
+		t.Fatalf(msgInvalidJSON, err)
 	}
 	if payload.Peer.PeerID != "550e8400-e29b-41d4-a716-446655440000" || payload.Peer.ReceiveBytes != 1000 {
 		t.Fatalf("unexpected peer in response: %+v", payload.Peer)
