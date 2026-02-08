@@ -13,9 +13,15 @@ import (
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 )
 
+const (
+	FamilyIPv4 = "IPv4"
+	FamilyIPv6 = "IPv6"
+)
+
 var (
-	ErrPeerNotFound  = errors.New("peer not found")
-	ErrNoAvailableIP = errors.New("no available ip addresses")
+	ErrPeerNotFound            = errors.New("peer not found")
+	ErrNoAvailableIP            = errors.New("no available ip addresses")
+	ErrUnsupportedAddressFamily = errors.New("requested address family is not supported by this node")
 )
 
 const activePeerWindow = 2 * time.Minute
@@ -23,18 +29,21 @@ const activePeerWindow = 2 * time.Minute
 var serverStart = time.Now()
 
 type PeerInfo struct {
-	PeerID       string
-	PublicKey    string
-	PrivateKey   string
-	PresharedKey string
-	AllowedIP    string
+	PeerID          string
+	PublicKey       string
+	PrivateKey      string
+	PresharedKey    string
+	AllowedIPs      []string // one per family (e.g. ["10.0.0.2/32", "fd00::2/128"])
+	AddressFamilies []string // e.g. ["IPv4", "IPv6"] — what this peer has
 }
 
 type WireGuardService struct {
 	client     wgClient
 	deviceName string
-	subnet     *net.IPNet
-	serverIP   net.IP
+	subnet4    *net.IPNet
+	serverIP4  net.IP
+	subnet6    *net.IPNet
+	serverIP6  net.IP
 	store      *PeerStore
 }
 
@@ -62,16 +71,20 @@ type PeerStats struct {
 }
 
 type WireGuardInfo struct {
-	Interface  string `json:"interface"`
-	ListenPort int    `json:"listenPort"`
-	Subnet     string `json:"subnet"`
-	ServerIP   string `json:"serverIp"`
+	Interface        string   `json:"interface"`
+	ListenPort       int      `json:"listenPort"`
+	Subnets          []string `json:"subnets"`
+	ServerIPs        []string `json:"serverIps"`
+	AddressFamilies  []string `json:"addressFamilies"`  // what the node supports, e.g. ["IPv4", "IPv6"]
+	IPv6Enabled      bool     `json:"ipv6Enabled"`      // true if node has IPv6
 }
 
 // PeerListItem is a minimal peer entry for list responses.
 type PeerListItem struct {
 	PeerID          string     `json:"peerId"`
-	AllowedIP       string     `json:"allowedIP"`
+	AllowedIPs      []string   `json:"allowedIPs"`
+	AddressFamilies []string   `json:"addressFamilies"` // e.g. ["IPv4"] or ["IPv4", "IPv6"]
+	IPv6Enabled     bool       `json:"ipv6Enabled"`     // true if this peer has IPv6
 	PublicKey       string     `json:"publicKey"`
 	Active          bool       `json:"active"`
 	LastHandshakeAt *time.Time `json:"lastHandshakeAt"`
@@ -92,34 +105,104 @@ func NewWireGuardService(cfg config.Config) (*WireGuardService, error) {
 		return nil, err
 	}
 
-	_, subnet, err := net.ParseCIDR(cfg.WGSubnet)
-	if err != nil {
-		return nil, fmt.Errorf("invalid WG_SUBNET: %w", err)
-	}
-	if subnet.IP.To4() == nil {
-		return nil, errors.New("WG_SUBNET must be IPv4")
-	}
+	var subnet4, subnet6 *net.IPNet
+	var serverIP4, serverIP6 net.IP
 
-	serverIP, err := resolveServerIP(subnet, cfg.WGServerIP)
-	if err != nil {
-		return nil, err
+	if cfg.WGSubnet != "" {
+		_, sub, err := net.ParseCIDR(cfg.WGSubnet)
+		if err != nil {
+			return nil, fmt.Errorf("invalid WG_SUBNET: %w", err)
+		}
+		if sub.IP.To4() == nil {
+			return nil, errors.New("wireguard.subnet must be IPv4")
+		}
+		subnet4 = sub
+		serverIP4, err = resolveServerIP4(subnet4, cfg.WGServerIP)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if cfg.WGSubnet6 != "" {
+		_, sub, err := net.ParseCIDR(cfg.WGSubnet6)
+		if err != nil {
+			return nil, fmt.Errorf("invalid WG_SUBNET6: %w", err)
+		}
+		if sub.IP.To4() != nil {
+			return nil, errors.New("wireguard.subnet6 must be IPv6")
+		}
+		subnet6 = sub
+		serverIP6, err = resolveServerIP6(subnet6, cfg.WGServerIP6)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	return &WireGuardService{
 		client:     client,
 		deviceName: cfg.WGInterface,
-		subnet:     subnet,
-		serverIP:   serverIP,
+		subnet4:    subnet4,
+		serverIP4:  serverIP4,
+		subnet6:    subnet6,
+		serverIP6:  serverIP6,
 		store:      NewPeerStore(),
 	}, nil
 }
 
-func (s *WireGuardService) EnsurePeer(peerID string, expiresAt *time.Time) (PeerInfo, error) {
+// NodeAddressFamilies returns the address families this node supports (e.g. ["IPv4", "IPv6"]).
+func (s *WireGuardService) NodeAddressFamilies() []string {
+	var out []string
+	if s.subnet4 != nil {
+		out = append(out, FamilyIPv4)
+	}
+	if s.subnet6 != nil {
+		out = append(out, FamilyIPv6)
+	}
+	return out
+}
+
+// ValidateAddressFamilies checks that requested families are supported by the node.
+// If requested is nil or empty, returns node's families (default = all). No duplicates allowed.
+func (s *WireGuardService) ValidateAddressFamilies(requested []string) ([]string, error) {
+	nodeFamilies := s.NodeAddressFamilies()
+	if len(requested) == 0 {
+		return nodeFamilies, nil
+	}
+	seen := make(map[string]bool)
+	var out []string
+	for _, f := range requested {
+		if f != FamilyIPv4 && f != FamilyIPv6 {
+			return nil, fmt.Errorf("addressFamilies may only contain %q and %q", FamilyIPv4, FamilyIPv6)
+		}
+		if seen[f] {
+			return nil, fmt.Errorf("duplicate address family %q", f)
+		}
+		seen[f] = true
+		has := false
+		for _, n := range nodeFamilies {
+			if n == f {
+				has = true
+				break
+			}
+		}
+		if !has {
+			return nil, ErrUnsupportedAddressFamily
+		}
+		out = append(out, f)
+	}
+	return out, nil
+}
+
+func (s *WireGuardService) EnsurePeer(peerID string, expiresAt *time.Time, addressFamilies []string) (PeerInfo, error) {
 	if record, ok := s.store.Get(peerID); ok {
 		return s.rotatePeer(peerID, record, expiresAt)
 	}
 
-	allowedIP, err := s.allocateIP()
+	families, err := s.ValidateAddressFamilies(addressFamilies)
+	if err != nil {
+		return PeerInfo{}, err
+	}
+
+	allowedIPs, err := s.allocateIPs(families)
 	if err != nil {
 		return PeerInfo{}, err
 	}
@@ -137,7 +220,7 @@ func (s *WireGuardService) EnsurePeer(peerID string, expiresAt *time.Time) (Peer
 	peerConfig := wgtypes.PeerConfig{
 		PublicKey:                   publicKey,
 		PresharedKey:                &presharedKey,
-		AllowedIPs:                  []net.IPNet{allowedIP},
+		AllowedIPs:                  allowedIPs,
 		ReplaceAllowedIPs:           true,
 		PersistentKeepaliveInterval: keepaliveInterval(),
 	}
@@ -147,19 +230,24 @@ func (s *WireGuardService) EnsurePeer(peerID string, expiresAt *time.Time) (Peer
 	}
 
 	s.store.Set(PeerRecord{
-		PeerID:    peerID,
-		PublicKey: publicKey,
-		AllowedIP: allowedIP,
-		CreatedAt: time.Now().UTC(),
-		ExpiresAt: expiresAt,
+		PeerID:     peerID,
+		PublicKey:  publicKey,
+		AllowedIPs: allowedIPs,
+		CreatedAt:  time.Now().UTC(),
+		ExpiresAt:  expiresAt,
 	})
 
+	allowedIPsStr := make([]string, len(allowedIPs))
+	for i := range allowedIPs {
+		allowedIPsStr[i] = allowedIPs[i].String()
+	}
 	return PeerInfo{
-		PeerID:       peerID,
-		PublicKey:    publicKey.String(),
-		PrivateKey:   privateKey.String(),
-		PresharedKey: presharedKey.String(),
-		AllowedIP:    allowedIP.String(),
+		PeerID:          peerID,
+		PublicKey:       publicKey.String(),
+		PrivateKey:      privateKey.String(),
+		PresharedKey:    presharedKey.String(),
+		AllowedIPs:      allowedIPsStr,
+		AddressFamilies: families,
 	}, nil
 }
 
@@ -191,7 +279,7 @@ func (s *WireGuardService) DeletePeer(peerID string) error {
 }
 
 func (s *WireGuardService) Stats() (Stats, error) {
-	peersPossible, err := possiblePeerCount(s.subnet, s.serverIP)
+	peersPossible, err := s.possiblePeerCountTotal()
 	if err != nil {
 		return Stats{}, err
 	}
@@ -212,16 +300,31 @@ func (s *WireGuardService) Stats() (Stats, error) {
 		}
 	}
 
+	subnets := make([]string, 0, 2)
+	serverIPs := make([]string, 0, 2)
+	if s.subnet4 != nil {
+		subnets = append(subnets, s.subnet4.String())
+		serverIPs = append(serverIPs, s.serverIP4.String())
+	}
+	if s.subnet6 != nil {
+		subnets = append(subnets, s.subnet6.String())
+		serverIPs = append(serverIPs, s.serverIP6.String())
+	}
+	nodeFamilies := s.NodeAddressFamilies()
+	ipv6Enabled := s.subnet6 != nil
+
 	return Stats{
 		Service: ServiceInfo{
 			Name:    version.Name,
 			Version: version.Version,
 		},
 		WireGuard: WireGuardInfo{
-			Interface:  s.deviceName,
-			ListenPort: device.ListenPort,
-			Subnet:     s.subnet.String(),
-			ServerIP:   s.serverIP.String(),
+			Interface:       s.deviceName,
+			ListenPort:      device.ListenPort,
+			Subnets:         subnets,
+			ServerIPs:       serverIPs,
+			AddressFamilies: nodeFamilies,
+			IPv6Enabled:     ipv6Enabled,
 		},
 		Peers: PeerStats{
 			Possible: peersPossible,
@@ -296,15 +399,38 @@ func peerRecordToListItem(rec PeerRecord, devicePeer wgtypes.Peer, now time.Time
 		s := rec.ExpiresAt.UTC().Format(time.RFC3339)
 		expiresAt = &s
 	}
+	allowedIPs := make([]string, len(rec.AllowedIPs))
+	families := make([]string, 0, 2)
+	hasIPv6 := false
+	for i := range rec.AllowedIPs {
+		allowedIPs[i] = rec.AllowedIPs[i].String()
+		if rec.AllowedIPs[i].IP.To4() != nil {
+			families = appendIfNotPresent(families, FamilyIPv4)
+		} else {
+			families = appendIfNotPresent(families, FamilyIPv6)
+			hasIPv6 = true
+		}
+	}
 	return PeerListItem{
 		PeerID:          rec.PeerID,
-		AllowedIP:       rec.AllowedIP.String(),
+		AllowedIPs:      allowedIPs,
+		AddressFamilies: families,
+		IPv6Enabled:     hasIPv6,
 		PublicKey:       rec.PublicKey.String(),
 		Active:          active,
 		LastHandshakeAt: lastHandshake,
 		CreatedAt:       createdAt,
 		ExpiresAt:       expiresAt,
 	}
+}
+
+func appendIfNotPresent(slice []string, v string) []string {
+	for _, x := range slice {
+		if x == v {
+			return slice
+		}
+	}
+	return append(slice, v)
 }
 
 func (s *WireGuardService) rotatePeer(peerID string, record PeerRecord, expiresAt *time.Time) (PeerInfo, error) {
@@ -327,7 +453,7 @@ func (s *WireGuardService) rotatePeer(peerID string, record PeerRecord, expiresA
 			{
 				PublicKey:                   publicKey,
 				PresharedKey:                &presharedKey,
-				AllowedIPs:                  []net.IPNet{record.AllowedIP},
+				AllowedIPs:                  record.AllowedIPs,
 				ReplaceAllowedIPs:           true,
 				PersistentKeepaliveInterval: keepaliveInterval(),
 			},
@@ -344,70 +470,155 @@ func (s *WireGuardService) rotatePeer(peerID string, record PeerRecord, expiresA
 		effectiveExpiresAt = record.ExpiresAt
 	}
 	s.store.Set(PeerRecord{
-		PeerID:    peerID,
-		PublicKey: publicKey,
-		AllowedIP: record.AllowedIP,
-		CreatedAt: record.CreatedAt,
-		ExpiresAt: effectiveExpiresAt,
+		PeerID:     peerID,
+		PublicKey:  publicKey,
+		AllowedIPs: record.AllowedIPs,
+		CreatedAt:  record.CreatedAt,
+		ExpiresAt:  effectiveExpiresAt,
 	})
 
+	allowedIPsStr := make([]string, len(record.AllowedIPs))
+	peerFamilies := make([]string, 0, 2)
+	for i := range record.AllowedIPs {
+		allowedIPsStr[i] = record.AllowedIPs[i].String()
+		if record.AllowedIPs[i].IP.To4() != nil {
+			peerFamilies = appendIfNotPresent(peerFamilies, FamilyIPv4)
+		} else {
+			peerFamilies = appendIfNotPresent(peerFamilies, FamilyIPv6)
+		}
+	}
 	return PeerInfo{
-		PeerID:       peerID,
-		PublicKey:    publicKey.String(),
-		PrivateKey:   privateKey.String(),
-		PresharedKey: presharedKey.String(),
-		AllowedIP:    record.AllowedIP.String(),
+		PeerID:          peerID,
+		PublicKey:       publicKey.String(),
+		PrivateKey:      privateKey.String(),
+		PresharedKey:    presharedKey.String(),
+		AllowedIPs:      allowedIPsStr,
+		AddressFamilies: peerFamilies,
 	}, nil
 }
 
-func (s *WireGuardService) allocateIP() (net.IPNet, error) {
-	used := make(map[string]struct{})
-	used[s.serverIP.String()] = struct{}{}
-
-	for _, record := range s.store.List() {
-		used[record.AllowedIP.IP.String()] = struct{}{}
+// allocateIPs allocates one address per requested family. families must be validated (e.g. via ValidateAddressFamilies).
+func (s *WireGuardService) allocateIPs(families []string) ([]net.IPNet, error) {
+	used, err := s.collectUsedIPs()
+	if err != nil {
+		return nil, err
 	}
+	wantIPv4, wantIPv6 := familiesRequested(families)
+	var out []net.IPNet
+	if wantIPv4 && s.subnet4 != nil {
+		ipNet, err := allocateOneIPv4(s.subnet4, used)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, ipNet)
+	}
+	if wantIPv6 && s.subnet6 != nil {
+		ipNet, err := allocateOneIPv6(s.subnet6, used)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, ipNet)
+	}
+	return out, nil
+}
 
+func (s *WireGuardService) collectUsedIPs() (map[string]struct{}, error) {
+	used := make(map[string]struct{})
+	if s.serverIP4 != nil {
+		used[s.serverIP4.String()] = struct{}{}
+	}
+	if s.serverIP6 != nil {
+		used[s.serverIP6.String()] = struct{}{}
+	}
+	for _, record := range s.store.List() {
+		for _, aip := range record.AllowedIPs {
+			used[aip.IP.String()] = struct{}{}
+		}
+	}
 	device, err := s.client.Device(s.deviceName)
 	if err != nil {
-		return net.IPNet{}, err
+		return nil, err
 	}
 	for _, peer := range device.Peers {
 		for _, allowed := range peer.AllowedIPs {
-			if allowed.IP.To4() != nil {
-				used[allowed.IP.String()] = struct{}{}
-			}
+			used[allowed.IP.String()] = struct{}{}
 		}
 	}
+	return used, nil
+}
 
-	start, end, err := ipv4Range(s.subnet)
+func familiesRequested(families []string) (wantIPv4, wantIPv6 bool) {
+	for _, f := range families {
+		if f == FamilyIPv4 {
+			wantIPv4 = true
+		}
+		if f == FamilyIPv6 {
+			wantIPv6 = true
+		}
+	}
+	return wantIPv4, wantIPv6
+}
+
+func allocateOneIPv4(subnet *net.IPNet, used map[string]struct{}) (net.IPNet, error) {
+	start, end, err := ipv4Range(subnet)
 	if err != nil {
 		return net.IPNet{}, err
 	}
-
 	for ip := start; !ipAfter(ip, end); ip = nextIPv4(ip) {
 		if _, exists := used[ip.String()]; exists {
 			continue
 		}
+		used[ip.String()] = struct{}{}
 		return net.IPNet{IP: ip, Mask: net.CIDRMask(32, 32)}, nil
 	}
-
 	return net.IPNet{}, ErrNoAvailableIP
 }
 
-func resolveServerIP(subnet *net.IPNet, serverIP string) (net.IP, error) {
+func allocateOneIPv6(subnet *net.IPNet, used map[string]struct{}) (net.IPNet, error) {
+	start, end, err := ipv6Range(subnet)
+	if err != nil {
+		return net.IPNet{}, err
+	}
+	for ip := start; !ipAfterIPv6(ip, end); ip = nextIPv6(ip) {
+		if _, exists := used[ip.String()]; exists {
+			continue
+		}
+		used[ip.String()] = struct{}{}
+		return net.IPNet{IP: ip, Mask: net.CIDRMask(128, 128)}, nil
+	}
+	return net.IPNet{}, ErrNoAvailableIP
+}
+
+func resolveServerIP4(subnet *net.IPNet, serverIP string) (net.IP, error) {
 	if serverIP != "" {
 		ip := net.ParseIP(serverIP)
 		if ip == nil || ip.To4() == nil {
-			return nil, errors.New("WG_SERVER_IP must be a valid IPv4 address")
+			return nil, errors.New("wireguard.server_ip must be a valid IPv4 address")
 		}
 		if !subnet.Contains(ip) {
-			return nil, errors.New("WG_SERVER_IP must be inside WG_SUBNET")
+			return nil, errors.New("wireguard.server_ip must be inside wireguard.subnet")
 		}
 		return ip.To4(), nil
 	}
-
 	start, _, err := ipv4Range(subnet)
+	if err != nil {
+		return nil, err
+	}
+	return start, nil
+}
+
+func resolveServerIP6(subnet *net.IPNet, serverIP string) (net.IP, error) {
+	if serverIP != "" {
+		ip := net.ParseIP(serverIP)
+		if ip == nil || ip.To4() != nil {
+			return nil, errors.New("wireguard.server_ip6 must be a valid IPv6 address")
+		}
+		if !subnet.Contains(ip) {
+			return nil, errors.New("wireguard.server_ip6 must be inside wireguard.subnet6")
+		}
+		return ip, nil
+	}
+	start, _, err := ipv6Range(subnet)
 	if err != nil {
 		return nil, err
 	}
@@ -455,6 +666,76 @@ func ipAfter(a, b net.IP) bool {
 	return ipToUint32(a) > ipToUint32(b)
 }
 
+func ipv6Range(subnet *net.IPNet) (net.IP, net.IP, error) {
+	if subnet.IP.To4() != nil {
+		return nil, nil, errors.New("expected IPv6 subnet")
+	}
+	ip := subnet.IP.To16()
+	if ip == nil {
+		return nil, nil, errors.New("invalid IPv6 subnet")
+	}
+	ones, bits := subnet.Mask.Size()
+	if bits != 128 {
+		return nil, nil, errors.New("IPv6 mask must be 128 bits")
+	}
+	if ones < 112 {
+		return nil, nil, errors.New("wireguard.subnet6 prefix must be /112 or larger (e.g. /112, /120, /128)")
+	}
+	network := make(net.IP, 16)
+	copy(network, ip)
+	start := make(net.IP, 16)
+	copy(start, network)
+	for i := 15; i >= 0; i-- {
+		if start[i] < 255 {
+			start[i]++
+			break
+		}
+		start[i] = 0
+	}
+	mask := subnet.Mask
+	broadcast := make(net.IP, 16)
+	for i := 0; i < 16; i++ {
+		broadcast[i] = network[i] | ^mask[i]
+	}
+	end := make(net.IP, 16)
+	copy(end, broadcast)
+	for i := 15; i >= 0; i-- {
+		if end[i] > 0 {
+			end[i]--
+			break
+		}
+		end[i] = 255
+	}
+	if ipAfterIPv6(start, end) {
+		return nil, nil, errors.New("IPv6 subnet is too small")
+	}
+	return start, end, nil
+}
+
+func nextIPv6(ip net.IP) net.IP {
+	next := make(net.IP, 16)
+	copy(next, ip.To16())
+	for i := 15; i >= 0; i-- {
+		if next[i] < 255 {
+			next[i]++
+			return next
+		}
+		next[i] = 0
+	}
+	return next
+}
+
+func ipAfterIPv6(a, b net.IP) bool {
+	a = a.To16()
+	b = b.To16()
+	for i := 0; i < 16; i++ {
+		if a[i] != b[i] {
+			return a[i] > b[i]
+		}
+	}
+	return false
+}
+
 func keepaliveInterval() *time.Duration {
 	interval := 25 * time.Second
 	return &interval
@@ -485,6 +766,43 @@ func possiblePeerCount(subnet *net.IPNet, serverIP net.IP) (int, error) {
 
 	if total < 0 {
 		return 0, nil
+	}
+	return total, nil
+}
+
+func possiblePeerCountIPv6(subnet *net.IPNet, serverIP net.IP) (int, error) {
+	start, end, err := ipv6Range(subnet)
+	if err != nil {
+		return 0, err
+	}
+	n := 0
+	for ip := start; !ipAfterIPv6(ip, end); ip = nextIPv6(ip) {
+		if serverIP != nil && ip.Equal(serverIP) {
+			continue
+		}
+		n++
+		if n > 65536 {
+			return 65536, nil
+		}
+	}
+	return n, nil
+}
+
+func (s *WireGuardService) possiblePeerCountTotal() (int, error) {
+	var total int
+	if s.subnet4 != nil {
+		n, err := possiblePeerCount(s.subnet4, s.serverIP4)
+		if err != nil {
+			return 0, err
+		}
+		total += n
+	}
+	if s.subnet6 != nil {
+		n, err := possiblePeerCountIPv6(s.subnet6, s.serverIP6)
+		if err != nil {
+			return 0, err
+		}
+		total += n
 	}
 	return total, nil
 }

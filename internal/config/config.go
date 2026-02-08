@@ -20,8 +20,10 @@ type Config struct {
 	TLSKeyFile   string // path to TLS private key (PEM)
 	AllowedNets  []*net.IPNet // optional: if non-empty, only these IPs/CIDRs may reach the API
 	WGInterface  string
-	WGSubnet     string
-	WGServerIP   string
+	WGSubnet     string   // IPv4 CIDR (optional if WGSubnet6 is set)
+	WGServerIP   string   // IPv4 server address (optional)
+	WGSubnet6    string   // IPv6 CIDR (optional if WGSubnet is set)
+	WGServerIP6  string   // IPv6 server address (optional)
 	WGListenPort int
 	WANInterface string
 }
@@ -44,6 +46,8 @@ type fileConfig struct {
 		Interface  string           `yaml:"interface"`
 		Subnet     string           `yaml:"subnet"`
 		ServerIP   string           `yaml:"server_ip"`
+		Subnet6    string           `yaml:"subnet6"`
+		ServerIP6  string           `yaml:"server_ip6"`
 		ListenPort int              `yaml:"listen_port"`
 		Routing    wireguardRouting `yaml:"routing"`
 	} `yaml:"wireguard"`
@@ -73,49 +77,18 @@ func loadConfigFile(path string) (Config, error) {
 	if err != nil {
 		return Config{}, fmt.Errorf("read config: %w", err)
 	}
-
 	var fc fileConfig
 	if err := yaml.Unmarshal(raw, &fc); err != nil {
 		return Config{}, fmt.Errorf("parse config: %w", err)
 	}
-
-	portValue, err := parsePort("server.port", fc.Server.Port)
+	portValue, apiKey, tlsCert, tlsKey, allowedNets, err := parseServerAndAuth(fc)
 	if err != nil {
 		return Config{}, err
 	}
-	apiKey, err := requireString("auth.api_key", fc.Auth.APIKey)
+	wgSubnet, wgSubnet6, wgInterface, wgServerIP, wgServerIP6, wanInterface, wgListenPort, err := parseWireGuard(fc)
 	if err != nil {
 		return Config{}, err
 	}
-	wgSubnet, err := requireCIDR("wireguard.subnet", fc.WireGuard.Subnet)
-	if err != nil {
-		return Config{}, err
-	}
-	wgInterface, err := requireString("wireguard.interface", fc.WireGuard.Interface)
-	if err != nil {
-		return Config{}, err
-	}
-	wgListenPort := fc.WireGuard.ListenPort
-	if err := requirePort("wireguard.listen_port", wgListenPort); err != nil {
-		return Config{}, err
-	}
-	wgServerIP, err := optionalIPv4("wireguard.server_ip", fc.WireGuard.ServerIP)
-	if err != nil {
-		return Config{}, err
-	}
-	wanInterface, err := requireString("wireguard.routing.wan_interface", fc.WireGuard.Routing.WANInterface)
-	if err != nil {
-		return Config{}, err
-	}
-	tlsCert, tlsKey, err := parseOptionalTLS(fc.Server.TLSCert, fc.Server.TLSKey)
-	if err != nil {
-		return Config{}, err
-	}
-	allowedNets, err := parseAllowedIPs("server.allowed_ips", fc.Server.AllowedIPs)
-	if err != nil {
-		return Config{}, err
-	}
-
 	return Config{
 		Port:         portValue,
 		APIKey:       apiKey,
@@ -125,9 +98,85 @@ func loadConfigFile(path string) (Config, error) {
 		WGInterface:  wgInterface,
 		WGSubnet:     wgSubnet,
 		WGServerIP:   wgServerIP,
+		WGSubnet6:    wgSubnet6,
+		WGServerIP6:  wgServerIP6,
 		WGListenPort: wgListenPort,
 		WANInterface: wanInterface,
 	}, nil
+}
+
+func parseServerAndAuth(fc fileConfig) (portValue int, apiKey, tlsCert, tlsKey string, allowedNets []*net.IPNet, err error) {
+	portValue, err = parsePort("server.port", fc.Server.Port)
+	if err != nil {
+		return 0, "", "", "", nil, err
+	}
+	apiKey, err = requireString("auth.api_key", fc.Auth.APIKey)
+	if err != nil {
+		return 0, "", "", "", nil, err
+	}
+	tlsCert, tlsKey, err = parseOptionalTLS(fc.Server.TLSCert, fc.Server.TLSKey)
+	if err != nil {
+		return 0, "", "", "", nil, err
+	}
+	allowedNets, err = parseAllowedIPs("server.allowed_ips", fc.Server.AllowedIPs)
+	if err != nil {
+		return 0, "", "", "", nil, err
+	}
+	return portValue, apiKey, tlsCert, tlsKey, allowedNets, nil
+}
+
+func parseWireGuard(fc fileConfig) (wgSubnet, wgSubnet6, wgInterface, wgServerIP, wgServerIP6, wanInterface string, wgListenPort int, err error) {
+	wgSubnet, err = optionalCIDR("wireguard.subnet", fc.WireGuard.Subnet)
+	if err != nil {
+		return "", "", "", "", "", "", 0, err
+	}
+	wgSubnet6, err = optionalCIDR("wireguard.subnet6", fc.WireGuard.Subnet6)
+	if err != nil {
+		return "", "", "", "", "", "", 0, err
+	}
+	if err := validateWireGuardSubnets(wgSubnet, wgSubnet6); err != nil {
+		return "", "", "", "", "", "", 0, err
+	}
+	wgInterface, err = requireString("wireguard.interface", fc.WireGuard.Interface)
+	if err != nil {
+		return "", "", "", "", "", "", 0, err
+	}
+	wgListenPort = fc.WireGuard.ListenPort
+	if err := requirePort("wireguard.listen_port", wgListenPort); err != nil {
+		return "", "", "", "", "", "", 0, err
+	}
+	wgServerIP, err = optionalIPv4("wireguard.server_ip", fc.WireGuard.ServerIP)
+	if err != nil {
+		return "", "", "", "", "", "", 0, err
+	}
+	wgServerIP6, err = optionalIPv6("wireguard.server_ip6", fc.WireGuard.ServerIP6)
+	if err != nil {
+		return "", "", "", "", "", "", 0, err
+	}
+	wanInterface, err = requireString("wireguard.routing.wan_interface", fc.WireGuard.Routing.WANInterface)
+	if err != nil {
+		return "", "", "", "", "", "", 0, err
+	}
+	return wgSubnet, wgSubnet6, wgInterface, wgServerIP, wgServerIP6, wanInterface, wgListenPort, nil
+}
+
+func validateWireGuardSubnets(wgSubnet, wgSubnet6 string) error {
+	if wgSubnet == "" && wgSubnet6 == "" {
+		return fmt.Errorf("at least one of wireguard.subnet or wireguard.subnet6 is required")
+	}
+	if wgSubnet != "" {
+		_, ipNet, _ := net.ParseCIDR(wgSubnet)
+		if ipNet != nil && ipNet.IP.To4() == nil {
+			return fmt.Errorf("wireguard.subnet must be an IPv4 CIDR")
+		}
+	}
+	if wgSubnet6 != "" {
+		_, ipNet, _ := net.ParseCIDR(wgSubnet6)
+		if ipNet != nil && ipNet.IP.To4() != nil {
+			return fmt.Errorf("wireguard.subnet6 must be an IPv6 CIDR")
+		}
+	}
+	return nil
 }
 
 // TLSEnabled reports whether TLS (HTTPS) is configured (both cert and key are set).
@@ -182,10 +231,10 @@ func requirePort(field string, port int) error {
 	return nil
 }
 
-func requireCIDR(field, value string) (string, error) {
+func optionalCIDR(field, value string) (string, error) {
 	out := strings.TrimSpace(value)
 	if out == "" {
-		return "", fmt.Errorf(errMsgRequired, field)
+		return "", nil
 	}
 	if _, _, err := net.ParseCIDR(out); err != nil {
 		return "", fmt.Errorf("%s must be a valid CIDR", field)
@@ -205,7 +254,19 @@ func optionalIPv4(field, value string) (string, error) {
 	return out, nil
 }
 
-// parseAllowedIPs parses a list of IPv4 addresses or CIDRs (e.g. "10.0.0.1" or "10.0.0.0/24").
+func optionalIPv6(field, value string) (string, error) {
+	out := strings.TrimSpace(value)
+	if out == "" {
+		return "", nil
+	}
+	parsed := net.ParseIP(out)
+	if parsed == nil || parsed.To4() != nil {
+		return "", fmt.Errorf("%s must be a valid IPv6 address", field)
+	}
+	return out, nil
+}
+
+// parseAllowedIPs parses a list of IPv4 or IPv6 addresses or CIDRs.
 // Returns nil when the list is empty or nil (no whitelist). Each entry is normalized to *net.IPNet.
 func parseAllowedIPs(field string, entries []string) ([]*net.IPNet, error) {
 	if len(entries) == 0 {
@@ -227,7 +288,7 @@ func parseAllowedIPs(field string, entries []string) ([]*net.IPNet, error) {
 	return nets, nil
 }
 
-// parseOneAllowedIP parses a single IPv4 or CIDR entry. Returns (nil, nil) for empty s (skip).
+// parseOneAllowedIP parses a single IPv4/IPv6 or CIDR entry. Returns (nil, nil) for empty s (skip).
 func parseOneAllowedIP(field string, index int, s string) (*net.IPNet, error) {
 	if s == "" {
 		return nil, nil
@@ -237,14 +298,15 @@ func parseOneAllowedIP(field string, index int, s string) (*net.IPNet, error) {
 		if err != nil {
 			return nil, fmt.Errorf("%s[%d]: invalid CIDR %q: %w", field, index, s, err)
 		}
-		if ipNet.IP.To4() == nil {
-			return nil, fmt.Errorf("%s[%d]: only IPv4 is supported", field, index)
-		}
 		return ipNet, nil
 	}
 	ip := net.ParseIP(s)
-	if ip == nil || ip.To4() == nil {
-		return nil, fmt.Errorf("%s[%d]: invalid IPv4 address %q", field, index, s)
+	if ip == nil {
+		return nil, fmt.Errorf("%s[%d]: invalid IP address %q", field, index, s)
 	}
-	return &net.IPNet{IP: ip, Mask: net.CIDRMask(32, 32)}, nil
+	bits := 32
+	if ip.To4() == nil {
+		bits = 128
+	}
+	return &net.IPNet{IP: ip, Mask: net.CIDRMask(bits, bits)}, nil
 }

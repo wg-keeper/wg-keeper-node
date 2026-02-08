@@ -99,11 +99,63 @@ wireguard:
   interface: "wg0"
   subnet: "not-a-cidr"
   listen_port: 51820
+  routing:
+    wan_interface: "eth0"
 `)
 	t.Setenv("NODE_CONFIG", path)
 
 	if _, err := LoadConfig(); err == nil {
 		t.Fatalf("expected error for invalid subnet")
+	}
+}
+
+func TestLoadConfigNoSubnet(t *testing.T) {
+	path := writeConfigFile(t, `
+server:
+  port: "51821"
+auth:
+  api_key: "test-key"
+wireguard:
+  interface: "wg0"
+  listen_port: 51820
+  routing:
+    wan_interface: "eth0"
+`)
+	t.Setenv("NODE_CONFIG", path)
+
+	if _, err := LoadConfig(); err == nil {
+		t.Fatalf("expected error when neither subnet nor subnet6 is set")
+	}
+}
+
+func TestLoadConfigIPv6Only(t *testing.T) {
+	path := writeConfigFile(t, `
+server:
+  port: "51821"
+auth:
+  api_key: "test-key"
+wireguard:
+  interface: "wg0"
+  subnet6: "fd00::/112"
+  server_ip6: "fd00::1"
+  listen_port: 51820
+  routing:
+    wan_interface: "eth0"
+`)
+	t.Setenv("NODE_CONFIG", path)
+
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatalf(msgExpectedNoError, err)
+	}
+	if cfg.WGSubnet != "" {
+		t.Fatalf("expected no IPv4 subnet, got %q", cfg.WGSubnet)
+	}
+	if cfg.WGSubnet6 != "fd00::/112" {
+		t.Fatalf("expected subnet6 fd00::/112, got %q", cfg.WGSubnet6)
+	}
+	if cfg.WGServerIP6 != "fd00::1" {
+		t.Fatalf("expected server_ip6 fd00::1, got %q", cfg.WGServerIP6)
 	}
 }
 

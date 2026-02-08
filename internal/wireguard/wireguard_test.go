@@ -15,6 +15,7 @@ const (
 	ipServerTest       = "10.0.0.1"
 	ipPeerTest         = "10.0.0.2"
 	peerIDTest         = "peer-1"
+	subnetTestCIDR     = "10.0.0.0/24"
 )
 
 type fakeWGClient struct {
@@ -42,10 +43,31 @@ func ipNet(t *testing.T, ip string) net.IPNet {
 	return *n
 }
 
-func TestResolveServerIP(t *testing.T) {
-	_, subnet, _ := net.ParseCIDR("10.0.0.0/24")
+func TestValidateAddressFamiliesEmptyReturnsNodeFamilies(t *testing.T) {
+	_, subnet4, _ := net.ParseCIDR(subnetTestCIDR)
+	svc := &WireGuardService{subnet4: subnet4, serverIP4: net.ParseIP(ipServerTest), store: NewPeerStore()}
+	families, err := svc.ValidateAddressFamilies(nil)
+	if err != nil {
+		t.Fatalf(msgUnexpectedError, err)
+	}
+	if len(families) != 1 || families[0] != FamilyIPv4 {
+		t.Fatalf("expected [IPv4], got %v", families)
+	}
+}
 
-	ip, err := resolveServerIP(subnet, "10.0.0.10")
+func TestValidateAddressFamiliesUnsupported(t *testing.T) {
+	_, subnet4, _ := net.ParseCIDR(subnetTestCIDR)
+	svc := &WireGuardService{subnet4: subnet4, serverIP4: net.ParseIP(ipServerTest), store: NewPeerStore()}
+	_, err := svc.ValidateAddressFamilies([]string{FamilyIPv6})
+	if !errors.Is(err, ErrUnsupportedAddressFamily) {
+		t.Fatalf("expected ErrUnsupportedAddressFamily, got %v", err)
+	}
+}
+
+func TestResolveServerIP4(t *testing.T) {
+	_, subnet, _ := net.ParseCIDR(subnetTestCIDR)
+
+	ip, err := resolveServerIP4(subnet, "10.0.0.10")
 	if err != nil {
 		t.Fatalf(msgUnexpectedError, err)
 	}
@@ -53,7 +75,7 @@ func TestResolveServerIP(t *testing.T) {
 		t.Fatalf("unexpected ip: %s", ip.String())
 	}
 
-	if _, err := resolveServerIP(subnet, "10.0.1.10"); err == nil {
+	if _, err := resolveServerIP4(subnet, "10.0.1.10"); err == nil {
 		t.Fatalf("expected error for IP outside subnet")
 	}
 }
@@ -71,22 +93,22 @@ func TestAllocateIPSkipsUsed(t *testing.T) {
 	svc := &WireGuardService{
 		client:     fakeWGClient{device: device},
 		deviceName: "wg0",
-		subnet:     subnet,
-		serverIP:   serverIP,
+		subnet4:    subnet,
+		serverIP4:  serverIP,
 		store:      NewPeerStore(),
 	}
 	svc.store.Set(PeerRecord{
-		PeerID:    peerIDTest,
-		PublicKey: wgtypes.Key{},
-		AllowedIP: ipNet(t, ipPeerTest),
+		PeerID:     peerIDTest,
+		PublicKey:  wgtypes.Key{},
+		AllowedIPs: []net.IPNet{ipNet(t, ipPeerTest)},
 	})
 
-	ip, err := svc.allocateIP()
+	ips, err := svc.allocateIPs([]string{FamilyIPv4})
 	if err != nil {
 		t.Fatalf(msgUnexpectedError, err)
 	}
-	if ip.IP.String() != "10.0.0.4" {
-		t.Fatalf("expected 10.0.0.4, got %s", ip.IP.String())
+	if len(ips) != 1 || ips[0].IP.String() != "10.0.0.4" {
+		t.Fatalf("expected [10.0.0.4/32], got %v", ips)
 	}
 }
 
@@ -97,17 +119,17 @@ func TestAllocateIPNoAvailable(t *testing.T) {
 	svc := &WireGuardService{
 		client:     fakeWGClient{device: &wgtypes.Device{}},
 		deviceName: "wg0",
-		subnet:     subnet,
-		serverIP:   serverIP,
+		subnet4:    subnet,
+		serverIP4:  serverIP,
 		store:      NewPeerStore(),
 	}
 	svc.store.Set(PeerRecord{
-		PeerID:    peerIDTest,
-		PublicKey: wgtypes.Key{},
-		AllowedIP: ipNet(t, ipPeerTest),
+		PeerID:     peerIDTest,
+		PublicKey:  wgtypes.Key{},
+		AllowedIPs: []net.IPNet{ipNet(t, ipPeerTest)},
 	})
 
-	_, err := svc.allocateIP()
+	_, err := svc.allocateIPs([]string{FamilyIPv4})
 	if !errors.Is(err, ErrNoAvailableIP) {
 		t.Fatalf("expected ErrNoAvailableIP, got %v", err)
 	}
@@ -128,14 +150,14 @@ func TestStatsActivePeers(t *testing.T) {
 	svc := &WireGuardService{
 		client:     fakeWGClient{device: device},
 		deviceName: "wg0",
-		subnet:     subnet,
-		serverIP:   serverIP,
+		subnet4:    subnet,
+		serverIP4:  serverIP,
 		store:      NewPeerStore(),
 	}
 	svc.store.Set(PeerRecord{
-		PeerID:    peerIDTest,
-		PublicKey: wgtypes.Key{},
-		AllowedIP: ipNet(t, ipPeerTest),
+		PeerID:     peerIDTest,
+		PublicKey:  wgtypes.Key{},
+		AllowedIPs: []net.IPNet{ipNet(t, ipPeerTest)},
 	})
 
 	stats, err := svc.Stats()

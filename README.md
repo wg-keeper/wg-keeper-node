@@ -104,6 +104,9 @@ services:
     sysctls:
       - net.ipv4.conf.all.src_valid_mark=1
       - net.ipv4.ip_forward=1
+      - net.ipv6.conf.all.disable_ipv6=0
+      - net.ipv6.conf.all.forwarding=1
+      - net.ipv6.conf.default.forwarding=1
 ```
 
 ## Run locally
@@ -143,28 +146,25 @@ All protected endpoints require the `X-API-Key` header with the value from `auth
 
 ```json
 {
-  "service": {
-    "name": "wg-keeper-node",
-    "version": "0.0.1"
-  },
+  "service": { "name": "wg-keeper-node", "version": "0.0.2" },
   "wireguard": {
     "interface": "wg0",
     "listenPort": 51820,
-    "subnet": "10.0.0.0/24",
-    "serverIp": "10.0.0.1"
+    "subnets": ["10.0.0.0/24", "fd00::/112"],
+    "serverIps": ["10.0.0.1", "fd00::1"],
+    "addressFamilies": ["IPv4", "IPv6"],
+    "ipv6Enabled": true
   },
-  "peers": {
-    "possible": 253,
-    "issued": 0,
-    "active": 0
-  },
+  "peers": { "possible": 253, "issued": 0, "active": 0 },
   "startedAt": "2026-02-02T00:06:06Z"
 }
 ```
 
+`wireguard.addressFamilies` shows what the node supports; `wireguard.ipv6Enabled` is true when the node has an IPv6 subnet.
+
 ### List peers
 
-`GET /peers` returns `{ "peers": [ ... ] }`. Each item has `peerId`, `allowedIP`, `publicKey`, `active`, `lastHandshakeAt`, `createdAt`.
+`GET /peers` returns `{ "peers": [ ... ] }`. Each item has `peerId`, `allowedIPs`, `addressFamilies`, `ipv6Enabled`, `publicKey`, `active`, `lastHandshakeAt`, `createdAt`.
 
 ### Get peer
 
@@ -172,12 +172,16 @@ All protected endpoints require the `X-API-Key` header with the value from `auth
 
 ### Create peer example (UUIDv4)
 
+Body: `peerId` (required), optional `expiresAt` (RFC3339), optional `addressFamilies` (e.g. `["IPv4"]`, `["IPv6"]`, or `["IPv4","IPv6"]`). If `addressFamilies` is omitted, the peer gets addresses for all families the node supports.
+
 ```
 curl -X POST http://localhost:51821/peers \
   -H "X-API-Key: <your-api-key>" \
   -H "Content-Type: application/json" \
   -d '{"peerId":"7c2f3f7a-6b4e-4f3f-8b2a-1a9b3c2d4e5f"}'
 ```
+
+To request IPv4-only on a dual-stack node: `{"peerId":"...", "addressFamilies":["IPv4"]}`.
 
 ### Delete peer example (UUIDv4)
 
