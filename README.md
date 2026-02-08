@@ -152,19 +152,18 @@ All protected endpoints require the `X-API-Key` header with the value from `auth
     "listenPort": 51820,
     "subnets": ["10.0.0.0/24", "fd00::/112"],
     "serverIps": ["10.0.0.1", "fd00::1"],
-    "addressFamilies": ["IPv4", "IPv6"],
-    "ipv6Enabled": true
+    "addressFamilies": ["IPv4", "IPv6"]
   },
   "peers": { "possible": 253, "issued": 0, "active": 0 },
   "startedAt": "2026-02-02T00:06:06Z"
 }
 ```
 
-`wireguard.addressFamilies` shows what the node supports; `wireguard.ipv6Enabled` is true when the node has an IPv6 subnet.
+`wireguard.addressFamilies` shows what the node supports (e.g. `["IPv4", "IPv6"]` when dual-stack).
 
 ### List peers
 
-`GET /peers` returns `{ "peers": [ ... ] }`. Each item has `peerId`, `allowedIPs`, `addressFamilies`, `ipv6Enabled`, `publicKey`, `active`, `lastHandshakeAt`, `createdAt`.
+`GET /peers` returns `{ "peers": [ ... ] }`. Each item has `peerId`, `allowedIPs`, `addressFamilies`, `publicKey`, `active`, `lastHandshakeAt`, `createdAt`.
 
 ### Get peer
 

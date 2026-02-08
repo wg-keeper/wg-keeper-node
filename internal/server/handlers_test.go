@@ -259,7 +259,7 @@ func TestListPeersSuccess(t *testing.T) {
 	router.GET(pathPeers, apiKeyMiddleware(testAPIKey), listPeersHandler(mockWGService{
 		listPeersFunc: func() ([]wireguard.PeerListItem, error) {
 			return []wireguard.PeerListItem{
-				{PeerID: "p1", AllowedIPs: []string{testAllowedIP}, AddressFamilies: []string{"IPv4"}, IPv6Enabled: false, PublicKey: "pk1", Active: true, CreatedAt: "2025-01-01T00:00:00Z"},
+				{PeerID: "p1", AllowedIPs: []string{testAllowedIP}, AddressFamilies: []string{"IPv4"}, PublicKey: "pk1", Active: true, CreatedAt: "2025-01-01T00:00:00Z"},
 			}, nil
 		},
 	}, false))
@@ -305,7 +305,7 @@ func TestGetPeerSuccess(t *testing.T) {
 	router.GET(pathPeersPeerID, apiKeyMiddleware(testAPIKey), getPeerHandler(mockWGService{
 		getPeerFunc: func(peerID string) (*wireguard.PeerDetail, error) {
 			return &wireguard.PeerDetail{
-				PeerListItem:   wireguard.PeerListItem{PeerID: peerID, AllowedIPs: []string{testAllowedIP}, AddressFamilies: []string{"IPv4"}, IPv6Enabled: false, PublicKey: "pk", Active: true, CreatedAt: "2025-01-01T00:00:00Z"},
+				PeerListItem:   wireguard.PeerListItem{PeerID: peerID, AllowedIPs: []string{testAllowedIP}, AddressFamilies: []string{"IPv4"}, PublicKey: "pk", Active: true, CreatedAt: "2025-01-01T00:00:00Z"},
 				ReceiveBytes:   1000,
 				TransmitBytes:  2000,
 			}, nil

@@ -26,7 +26,6 @@ type peerResponse struct {
 	PresharedKey    string   `json:"presharedKey"`
 	AllowedIPs      []string `json:"allowedIPs"`
 	AddressFamilies []string `json:"addressFamilies"`
-	IPv6Enabled     bool     `json:"ipv6Enabled"`
 }
 
 type serverInfoResponse struct {
@@ -100,7 +99,6 @@ func createPeerHandler(wgService wgPeerService, debug bool) gin.HandlerFunc {
 				PresharedKey:    info.PresharedKey,
 				AllowedIPs:      info.AllowedIPs,
 				AddressFamilies: info.AddressFamilies,
-				IPv6Enabled:     len(info.AddressFamilies) > 0 && contains(info.AddressFamilies, wireguard.FamilyIPv6),
 			},
 		})
 	}
@@ -187,15 +185,6 @@ func peerError(err error) (int, string, string) {
 	}
 
 	return http.StatusInternalServerError, "wireguard operation failed", "wireguard_error"
-}
-
-func contains(slice []string, v string) bool {
-	for _, x := range slice {
-		if x == v {
-			return true
-		}
-	}
-	return false
 }
 
 // writeError sends a JSON error. When debug is true, err.Error() is included as "detail"; set debug=false in production to avoid leaking internal details.

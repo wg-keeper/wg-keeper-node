@@ -76,7 +76,6 @@ type WireGuardInfo struct {
 	Subnets          []string `json:"subnets"`
 	ServerIPs        []string `json:"serverIps"`
 	AddressFamilies  []string `json:"addressFamilies"`  // what the node supports, e.g. ["IPv4", "IPv6"]
-	IPv6Enabled      bool     `json:"ipv6Enabled"`      // true if node has IPv6
 }
 
 // PeerListItem is a minimal peer entry for list responses.
@@ -84,7 +83,6 @@ type PeerListItem struct {
 	PeerID          string     `json:"peerId"`
 	AllowedIPs      []string   `json:"allowedIPs"`
 	AddressFamilies []string   `json:"addressFamilies"` // e.g. ["IPv4"] or ["IPv4", "IPv6"]
-	IPv6Enabled     bool       `json:"ipv6Enabled"`     // true if this peer has IPv6
 	PublicKey       string     `json:"publicKey"`
 	Active          bool       `json:"active"`
 	LastHandshakeAt *time.Time `json:"lastHandshakeAt"`
@@ -311,7 +309,6 @@ func (s *WireGuardService) Stats() (Stats, error) {
 		serverIPs = append(serverIPs, s.serverIP6.String())
 	}
 	nodeFamilies := s.NodeAddressFamilies()
-	ipv6Enabled := s.subnet6 != nil
 
 	return Stats{
 		Service: ServiceInfo{
@@ -324,7 +321,6 @@ func (s *WireGuardService) Stats() (Stats, error) {
 			Subnets:         subnets,
 			ServerIPs:       serverIPs,
 			AddressFamilies: nodeFamilies,
-			IPv6Enabled:     ipv6Enabled,
 		},
 		Peers: PeerStats{
 			Possible: peersPossible,
@@ -401,21 +397,18 @@ func peerRecordToListItem(rec PeerRecord, devicePeer wgtypes.Peer, now time.Time
 	}
 	allowedIPs := make([]string, len(rec.AllowedIPs))
 	families := make([]string, 0, 2)
-	hasIPv6 := false
 	for i := range rec.AllowedIPs {
 		allowedIPs[i] = rec.AllowedIPs[i].String()
 		if rec.AllowedIPs[i].IP.To4() != nil {
 			families = appendIfNotPresent(families, FamilyIPv4)
 		} else {
 			families = appendIfNotPresent(families, FamilyIPv6)
-			hasIPv6 = true
 		}
 	}
 	return PeerListItem{
 		PeerID:          rec.PeerID,
 		AllowedIPs:      allowedIPs,
 		AddressFamilies: families,
-		IPv6Enabled:     hasIPv6,
 		PublicKey:       rec.PublicKey.String(),
 		Active:          active,
 		LastHandshakeAt: lastHandshake,
