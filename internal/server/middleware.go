@@ -1,6 +1,7 @@
 package server
 
 import (
+	"crypto/subtle"
 	"net"
 	"net/http"
 
@@ -28,7 +29,12 @@ func apiKeyMiddleware(apiKey string) gin.HandlerFunc {
 }
 
 func apiKeyMatches(c *gin.Context, apiKey string) bool {
-	return c.GetHeader(apiKeyHeader) == apiKey
+	got := c.GetHeader(apiKeyHeader)
+	if len(got) != len(apiKey) {
+		subtle.ConstantTimeCompare([]byte(apiKey), []byte(apiKey)) // dummy to avoid leaking length
+		return false
+	}
+	return subtle.ConstantTimeCompare([]byte(got), []byte(apiKey)) == 1
 }
 
 // ipWhitelistMiddleware blocks requests whose ClientIP is not in any of the allowed nets.
