@@ -85,29 +85,23 @@ If the process is not running as root, `./wireguard/<interface>.conf` is used in
 
 ## Run with Docker Compose (recommended)
 
-```
-services:
-  wireguard:
-    image: ghcr.io/wg-keeper/node:0.0.2
-    restart: always
-    cap_add:
-      - NET_ADMIN
-      - SYS_MODULE
-    volumes:
-      - ./config.yaml:/app/config.yaml:ro
-      - ./wireguard:/etc/wireguard
-      # Optional: mount TLS certs and set server.tls_cert / server.tls_key in config
-      # - ./certs:/app/certs:ro
-    ports:
-      - 51820:51820/udp
-      - 51821:51821
-    sysctls:
-      - net.ipv4.conf.all.src_valid_mark=1
-      - net.ipv4.ip_forward=1
-      - net.ipv6.conf.all.disable_ipv6=0
-      - net.ipv6.conf.all.forwarding=1
-      - net.ipv6.conf.default.forwarding=1
-```
+In the repository you will find an example `docker-compose.yml`. Use it as follows:
+
+1. Prepare the config (see [Configuration](#configuration)):
+
+   ```
+   cp config.example.yaml config.yaml
+   ```
+
+2. Optional: create directories and TLS certs. The example mounts `./certs` for TLS; if you do not use HTTPS, remove or comment out the `./certs:/app/certs:ro` volume in `docker-compose.yml`.
+
+3. Start the stack:
+
+   ```
+   docker compose up -d
+   ```
+
+The example composes a single service `wireguard` with the image `ghcr.io/wg-keeper/node:0.0.3`, required capabilities (`NET_ADMIN`, `SYS_MODULE`), volumes for `config.yaml` and WireGuard config under `./wireguard`, optional `./certs`, and ports `51820/udp` and `51821`. It also sets IPv4/IPv6 forwarding sysctls and an optional IPv6-enabled network. Adjust volumes and ports to your environment.
 
 ## Run locally
 
@@ -146,7 +140,7 @@ All protected endpoints require the `X-API-Key` header with the value from `auth
 
 ```json
 {
-  "service": { "name": "wg-keeper-node", "version": "0.0.2" },
+  "service": { "name": "wg-keeper-node", "version": "0.0.3" },
   "wireguard": {
     "interface": "wg0",
     "listenPort": 51820,
