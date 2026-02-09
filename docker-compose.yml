@@ -1,0 +1,28 @@
+services:
+  wireguard:
+    image: ghcr.io/wg-keeper/node:0.0.3
+    restart: always
+    cap_add:
+      - NET_ADMIN
+      - SYS_MODULE
+    volumes:
+      - ./config.yaml:/app/config.yaml:ro
+      - ./wireguard:/etc/wireguard
+      - ./certs:/app/certs:ro
+    ports:
+      - "51820:51820/udp"
+      - "51821:51821"
+    sysctls:
+      - net.ipv4.conf.all.src_valid_mark=1
+      - net.ipv4.ip_forward=1
+      - net.ipv6.conf.all.disable_ipv6=0
+      - net.ipv6.conf.all.forwarding=1
+      - net.ipv6.conf.default.forwarding=1
+
+networks:
+  default:
+    enable_ipv6: true
+    ipam:
+      config:
+        - subnet: 172.18.0.0/16
+        - subnet: fd00:dead:beef::/64
