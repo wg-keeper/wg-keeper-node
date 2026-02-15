@@ -177,12 +177,10 @@ func initPersistStore(svc *WireGuardService) error {
 	if err := svc.store.LoadFromFileIfExists(svc.persistPath); err != nil {
 		return fmt.Errorf("load peer store: %w", err)
 	}
-	changed, err := svc.reconcileStoreWithDevice()
-	if err != nil {
+	if err := svc.reconcileStoreWithDevice(); err != nil {
 		return fmt.Errorf("reconcile peer store with device: %w", err)
 	}
-	changed = svc.reconcileStoreWithSubnets() || changed
-	if changed {
+	if changed := svc.reconcileStoreWithSubnets(); changed {
 		if err := svc.store.SaveToFile(svc.persistPath); err != nil {
 			return fmt.Errorf("save peer store after reconcile: %w", err)
 		}
@@ -193,11 +191,10 @@ func initPersistStore(svc *WireGuardService) error {
 // reconcileStoreWithDevice restores the device from the store: adds to the device any peer
 // that is in the store but not present on the device (e.g. after a reboot).
 // Store is the source of truth; we do not remove from store when a peer is missing on the device.
-// Returns (false, nil) because the store is never modified here, or (false, err) if the device cannot be read or configured.
-func (s *WireGuardService) reconcileStoreWithDevice() (bool, error) {
+func (s *WireGuardService) reconcileStoreWithDevice() error {
 	device, err := s.client.Device(s.deviceName)
 	if err != nil {
-		return false, err
+		return err
 	}
 	onDevice := make(map[wgtypes.Key]bool)
 	for i := range device.Peers {
@@ -215,12 +212,9 @@ func (s *WireGuardService) reconcileStoreWithDevice() (bool, error) {
 		}
 	}
 	if len(toAdd) == 0 {
-		return false, nil
+		return nil
 	}
-	if err := s.client.ConfigureDevice(s.deviceName, wgtypes.Config{Peers: toAdd}); err != nil {
-		return false, err
-	}
-	return false, nil
+	return s.client.ConfigureDevice(s.deviceName, wgtypes.Config{Peers: toAdd})
 }
 
 // reconcileStoreWithSubnets removes from store and from the device any record whose allowed_ips
