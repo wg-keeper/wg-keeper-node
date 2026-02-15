@@ -9,6 +9,11 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+const (
+	middlewareTestStatusOKFmt = "status: got %d, want 200"
+	middlewareTestRemoteAddr  = "10.0.0.5:1234"
+)
+
 func TestAPIKeyMiddleware(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -27,7 +32,7 @@ func TestAPIKeyMiddleware(t *testing.T) {
 		r := gin.New()
 		r.GET("/", apiKeyMiddleware("secret"), func(c *gin.Context) { c.Status(http.StatusOK) })
 		req := httptest.NewRequest(http.MethodGet, "/", nil)
-		req.Header.Set("X-API-Key", "wrong")
+		req.Header.Set(apiKeyHeader, "wrong")
 		rec := httptest.NewRecorder()
 		r.ServeHTTP(rec, req)
 		if rec.Code != http.StatusUnauthorized {
@@ -39,11 +44,11 @@ func TestAPIKeyMiddleware(t *testing.T) {
 		r := gin.New()
 		r.GET("/", apiKeyMiddleware("secret"), func(c *gin.Context) { c.Status(http.StatusOK) })
 		req := httptest.NewRequest(http.MethodGet, "/", nil)
-		req.Header.Set("X-API-Key", "secret")
+		req.Header.Set(apiKeyHeader, "secret")
 		rec := httptest.NewRecorder()
 		r.ServeHTTP(rec, req)
 		if rec.Code != http.StatusOK {
-			t.Errorf("status: got %d, want 200", rec.Code)
+			t.Errorf(middlewareTestStatusOKFmt, rec.Code)
 		}
 	})
 
@@ -51,7 +56,7 @@ func TestAPIKeyMiddleware(t *testing.T) {
 		r := gin.New()
 		r.GET("/", apiKeyMiddleware("ab"), func(c *gin.Context) { c.Status(http.StatusOK) })
 		req := httptest.NewRequest(http.MethodGet, "/", nil)
-		req.Header.Set("X-API-Key", "a")
+		req.Header.Set(apiKeyHeader, "a")
 		rec := httptest.NewRecorder()
 		r.ServeHTTP(rec, req)
 		if rec.Code != http.StatusUnauthorized {
@@ -71,11 +76,11 @@ func TestIPWhitelistMiddleware(t *testing.T) {
 		r.Use(ipWhitelistMiddleware(nil))
 		r.GET("/", func(c *gin.Context) { c.Status(http.StatusOK) })
 		req := httptest.NewRequest(http.MethodGet, "/", nil)
-		req.RemoteAddr = "10.0.0.5:1234"
+		req.RemoteAddr = middlewareTestRemoteAddr
 		rec := httptest.NewRecorder()
 		r.ServeHTTP(rec, req)
 		if rec.Code != http.StatusOK {
-			t.Errorf("status: got %d, want 200", rec.Code)
+			t.Errorf(middlewareTestStatusOKFmt, rec.Code)
 		}
 	})
 
@@ -84,11 +89,11 @@ func TestIPWhitelistMiddleware(t *testing.T) {
 		r.Use(ipWhitelistMiddleware([]*net.IPNet{}))
 		r.GET("/", func(c *gin.Context) { c.Status(http.StatusOK) })
 		req := httptest.NewRequest(http.MethodGet, "/", nil)
-		req.RemoteAddr = "10.0.0.5:1234"
+		req.RemoteAddr = middlewareTestRemoteAddr
 		rec := httptest.NewRecorder()
 		r.ServeHTTP(rec, req)
 		if rec.Code != http.StatusOK {
-			t.Errorf("status: got %d, want 200", rec.Code)
+			t.Errorf(middlewareTestStatusOKFmt, rec.Code)
 		}
 	})
 
@@ -97,11 +102,11 @@ func TestIPWhitelistMiddleware(t *testing.T) {
 		r.Use(ipWhitelistMiddleware([]*net.IPNet{net1}))
 		r.GET("/", func(c *gin.Context) { c.Status(http.StatusOK) })
 		req := httptest.NewRequest(http.MethodGet, "/", nil)
-		req.RemoteAddr = "10.0.0.5:1234"
+		req.RemoteAddr = middlewareTestRemoteAddr
 		rec := httptest.NewRecorder()
 		r.ServeHTTP(rec, req)
 		if rec.Code != http.StatusOK {
-			t.Errorf("status: got %d, want 200", rec.Code)
+			t.Errorf(middlewareTestStatusOKFmt, rec.Code)
 		}
 	})
 
@@ -127,7 +132,7 @@ func TestIPWhitelistMiddleware(t *testing.T) {
 		rec := httptest.NewRecorder()
 		r.ServeHTTP(rec, req)
 		if rec.Code != http.StatusOK {
-			t.Errorf("status: got %d, want 200", rec.Code)
+			t.Errorf(middlewareTestStatusOKFmt, rec.Code)
 		}
 	})
 

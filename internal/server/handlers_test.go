@@ -15,14 +15,15 @@ import (
 )
 
 const (
-	pathStats         = "/stats"
-	pathPeers         = "/peers"
-	pathPeersPeerID   = "/peers/:peerId"
-	pathPeersTestUUID = "/peers/550e8400-e29b-41d4-a716-446655440000"
-	testAllowedIP     = "10.0.0.2/32"
-	testAPIKey        = "key"
-	createPeerBody    = `{"peerId":"550e8400-e29b-41d4-a716-446655440000"}`
-	msgInvalidJSON    = "invalid json: %v"
+	pathStats               = "/stats"
+	pathPeers               = "/peers"
+	pathPeersPeerID         = "/peers/:peerId"
+	pathPeersTestUUID       = "/peers/550e8400-e29b-41d4-a716-446655440000"
+	testAllowedIP           = "10.0.0.2/32"
+	testAPIKey              = "key"
+	createPeerBody          = `{"peerId":"550e8400-e29b-41d4-a716-446655440000"}`
+	msgInvalidJSON          = "invalid json: %v"
+	errMsgDeviceUnavailable = "device unavailable"
 )
 
 func newTestRouter() *gin.Engine {
@@ -85,7 +86,7 @@ func performRequest(t *testing.T, router *gin.Engine, method, path string, body 
 	t.Helper()
 	req := httptest.NewRequest(method, path, bytes.NewReader(body))
 	if apiKey != "" {
-		req.Header.Set("X-API-Key", apiKey)
+		req.Header.Set(apiKeyHeader, apiKey)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
@@ -259,7 +260,7 @@ func TestGetPeerWireguardError(t *testing.T) {
 	router := newTestRouter()
 	router.GET(pathPeersPeerID, apiKeyMiddleware(testAPIKey), getPeerHandler(mockWGService{
 		getPeerFunc: func(string) (*wireguard.PeerDetail, error) {
-			return nil, errors.New("device unavailable")
+			return nil, errors.New(errMsgDeviceUnavailable)
 		},
 	}, false))
 
@@ -391,7 +392,7 @@ func TestListPeersError(t *testing.T) {
 	router := newTestRouter()
 	router.GET(pathPeers, apiKeyMiddleware(testAPIKey), listPeersHandler(mockWGService{
 		listPeersFunc: func() ([]wireguard.PeerListItem, error) {
-			return nil, errors.New("device unavailable")
+			return nil, errors.New(errMsgDeviceUnavailable)
 		},
 	}, false))
 

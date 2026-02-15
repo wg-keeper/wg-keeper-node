@@ -9,6 +9,9 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// testWrongCtxKey is a distinct type used as context key to test GetRequestIDFromContext ignores other keys.
+type testWrongCtxKey struct{}
+
 func TestRequestIDMiddleware(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
@@ -25,21 +28,21 @@ func TestRequestIDMiddleware(t *testing.T) {
 		if rec.Code != http.StatusOK {
 			t.Fatalf("status: got %d", rec.Code)
 		}
-		id := rec.Header().Get("X-Request-Id")
+		id := rec.Header().Get(requestIDHeader)
 		if id == "" {
-			t.Error("X-Request-Id header should be set")
+			t.Error(requestIDHeader + " header should be set")
 		}
 	})
 
 	t.Run("reuses_id_from_header", func(t *testing.T) {
 		wantID := "550e8400-e29b-41d4-a716-446655440000"
 		req := httptest.NewRequest(http.MethodGet, "/id", nil)
-		req.Header.Set("X-Request-Id", wantID)
+		req.Header.Set(requestIDHeader, wantID)
 		rec := httptest.NewRecorder()
 		r.ServeHTTP(rec, req)
 
-		if got := rec.Header().Get("X-Request-Id"); got != wantID {
-			t.Errorf("X-Request-Id: got %q, want %q", got, wantID)
+		if got := rec.Header().Get(requestIDHeader); got != wantID {
+			t.Errorf("%s: got %q, want %q", requestIDHeader, got, wantID)
 		}
 	})
 }
@@ -50,7 +53,7 @@ func TestGetRequestIDFromContext(t *testing.T) {
 		t.Errorf("empty context: got %q", got)
 	}
 
-	ctx = context.WithValue(ctx, struct{}{}, "not-string")
+	ctx = context.WithValue(ctx, testWrongCtxKey{}, "not-string")
 	if got := GetRequestIDFromContext(ctx); got != "" {
 		t.Errorf("wrong type: got %q", got)
 	}

@@ -9,16 +9,20 @@ import (
 	"github.com/wg-keeper/wg-keeper-node/internal/config"
 )
 
+const (
+	wgconfTestAddressLine = "10.0.0.1/24"
+)
+
 func TestBuildConfigContent(t *testing.T) {
 	cfg := config.Config{}
-	content := buildConfigContent("privkey123", []string{"10.0.0.1/24"}, 51820, cfg)
+	content := buildConfigContent("privkey123", []string{wgconfTestAddressLine}, 51820, cfg)
 	if !strings.Contains(content, "[Interface]") {
 		t.Error("expected [Interface] in content")
 	}
 	if !strings.Contains(content, "PrivateKey = privkey123") {
 		t.Error("expected PrivateKey in content")
 	}
-	if !strings.Contains(content, "Address = 10.0.0.1/24") {
+	if !strings.Contains(content, "Address = "+wgconfTestAddressLine) {
 		t.Error("expected Address in content")
 	}
 	if !strings.Contains(content, "ListenPort = 51820") {
@@ -29,9 +33,9 @@ func TestBuildConfigContent(t *testing.T) {
 func TestBuildConfigContentWithPostUp(t *testing.T) {
 	cfg := config.Config{
 		WANInterface: "eth0",
-		WGSubnet:     "10.0.0.0/24",
+		WGSubnet:     subnetTestCIDR,
 	}
-	content := buildConfigContent("pk", []string{"10.0.0.1/24"}, 51820, cfg)
+	content := buildConfigContent("pk", []string{wgconfTestAddressLine}, 51820, cfg)
 	if !strings.Contains(content, "PostUp = ") {
 		t.Error("expected PostUp when WANInterface and WGSubnet set")
 	}
@@ -59,7 +63,7 @@ func TestBuildRoutingRules(t *testing.T) {
 	})
 
 	t.Run("wan_and_subnet4_returns_rules", func(t *testing.T) {
-		cfg := config.Config{WANInterface: "eth0", WGSubnet: "10.0.0.0/24"}
+		cfg := config.Config{WANInterface: "eth0", WGSubnet: subnetTestCIDR}
 		up, down := buildRoutingRules(cfg)
 		if len(up) == 0 || len(down) == 0 {
 			t.Errorf("expected rules, got up=%v down=%v", up, down)
@@ -70,7 +74,7 @@ func TestBuildRoutingRules(t *testing.T) {
 	})
 
 	t.Run("wan_and_subnet6_returns_ip6tables_rules", func(t *testing.T) {
-		cfg := config.Config{WANInterface: "eth0", WGSubnet6: "fd00::/64"}
+		cfg := config.Config{WANInterface: "eth0", WGSubnet6: subnet6TestCIDR64}
 		up, down := buildRoutingRules(cfg)
 		if len(up) == 0 || len(down) == 0 {
 			t.Errorf("expected rules, got up=%v down=%v", up, down)
@@ -84,11 +88,11 @@ func TestBuildRoutingRules(t *testing.T) {
 
 func TestAddressLineFromSubnet4(t *testing.T) {
 	t.Run("valid", func(t *testing.T) {
-		addr, err := addressLineFromSubnet4("10.0.0.0/24", "10.0.0.1")
+		addr, err := addressLineFromSubnet4(subnetTestCIDR, ipServerTest)
 		if err != nil {
 			t.Fatalf(msgUnexpectedError, err)
 		}
-		if addr != "10.0.0.1/24" {
+		if addr != wgconfTestAddressLine {
 			t.Errorf("got %q", addr)
 		}
 	})
@@ -101,7 +105,7 @@ func TestAddressLineFromSubnet4(t *testing.T) {
 	})
 
 	t.Run("ipv6_subnet_returns_error", func(t *testing.T) {
-		_, err := addressLineFromSubnet4("fd00::/64", "")
+		_, err := addressLineFromSubnet4(subnet6TestCIDR64, "")
 		if err == nil {
 			t.Error("expected error for IPv6 subnet")
 		}
@@ -110,7 +114,7 @@ func TestAddressLineFromSubnet4(t *testing.T) {
 
 func TestAddressLineFromSubnet6(t *testing.T) {
 	t.Run("valid", func(t *testing.T) {
-		addr, err := addressLineFromSubnet6("fd00::/64", "fd00::1")
+		addr, err := addressLineFromSubnet6(subnet6TestCIDR64, ipv6TestAddr1)
 		if err != nil {
 			t.Fatalf(msgUnexpectedError, err)
 		}
@@ -120,7 +124,7 @@ func TestAddressLineFromSubnet6(t *testing.T) {
 	})
 
 	t.Run("ipv4_subnet_returns_error", func(t *testing.T) {
-		_, err := addressLineFromSubnet6("10.0.0.0/24", "")
+		_, err := addressLineFromSubnet6(subnetTestCIDR, "")
 		if err == nil {
 			t.Error("expected error for IPv4 subnet")
 		}
@@ -139,7 +143,7 @@ func TestBuildAddressLines(t *testing.T) {
 	})
 
 	t.Run("subnet4_only", func(t *testing.T) {
-		lines, err := buildAddressLines(config.Config{WGSubnet: "10.0.0.0/24", WGServerIP: "10.0.0.1"})
+		lines, err := buildAddressLines(config.Config{WGSubnet: subnetTestCIDR, WGServerIP: ipServerTest})
 		if err != nil {
 			t.Fatalf(msgUnexpectedError, err)
 		}

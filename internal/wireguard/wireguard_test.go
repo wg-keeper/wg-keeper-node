@@ -15,9 +15,11 @@ import (
 
 const (
 	msgUnexpectedError  = "unexpected error: %v"
+	msgListPeersFmt     = "ListPeers: %v"
 	ipServerTest        = "10.0.0.1"
 	ipPeerTest          = "10.0.0.2"
 	peerIDTest          = "peer-1"
+	peerIDNewPeer       = "new-peer"
 	subnetTestCIDR      = "10.0.0.0/24"
 	subnetSmallTestCIDR = "10.0.0.0/29"
 )
@@ -179,15 +181,20 @@ func TestStatsActivePeers(t *testing.T) {
 	}
 }
 
-func TestRunExpiredPeersCleanup_ExitsOnContextCancel(t *testing.T) {
+func newTestServiceWithSubnet(t *testing.T, configureErr error) *WireGuardService {
+	t.Helper()
 	_, subnet4, _ := net.ParseCIDR(subnetTestCIDR)
-	svc := &WireGuardService{
-		client:     fakeWGClient{device: &wgtypes.Device{}},
+	return &WireGuardService{
+		client:     fakeWGClient{device: &wgtypes.Device{}, configureErr: configureErr},
 		deviceName: "wg0",
 		subnet4:    subnet4,
 		serverIP4:  net.ParseIP(ipServerTest),
 		store:      NewPeerStore(),
 	}
+}
+
+func TestRunExpiredPeersCleanupExitsOnContextCancel(t *testing.T) {
+	svc := newTestServiceWithSubnet(t, nil)
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() {
@@ -203,16 +210,9 @@ func TestRunExpiredPeersCleanup_ExitsOnContextCancel(t *testing.T) {
 	}
 }
 
-func TestRunExpiredPeersCleanup_RemovesExpiredPeer(t *testing.T) {
-	_, subnet4, _ := net.ParseCIDR(subnetTestCIDR)
+func TestRunExpiredPeersCleanupRemovesExpiredPeer(t *testing.T) {
+	svc := newTestServiceWithSubnet(t, nil)
 	expiredAt := time.Now().UTC().Add(-time.Hour)
-	svc := &WireGuardService{
-		client:     fakeWGClient{device: &wgtypes.Device{}},
-		deviceName: "wg0",
-		subnet4:    subnet4,
-		serverIP4:  net.ParseIP(ipServerTest),
-		store:      NewPeerStore(),
-	}
 	key, _ := wgtypes.GenerateKey()
 	svc.store.Set(PeerRecord{
 		PeerID:     "expired-peer",
@@ -229,22 +229,15 @@ func TestRunExpiredPeersCleanup_RemovesExpiredPeer(t *testing.T) {
 
 	list, err := svc.ListPeers()
 	if err != nil {
-		t.Fatalf("ListPeers: %v", err)
+		t.Fatalf(msgListPeersFmt, err)
 	}
 	if len(list) != 0 {
 		t.Errorf("expected 0 peers after cleanup, got %d", len(list))
 	}
 }
 
-func TestRunExpiredPeersCleanup_KeepsPermanentPeer(t *testing.T) {
-	_, subnet4, _ := net.ParseCIDR(subnetTestCIDR)
-	svc := &WireGuardService{
-		client:     fakeWGClient{device: &wgtypes.Device{}},
-		deviceName: "wg0",
-		subnet4:    subnet4,
-		serverIP4:  net.ParseIP(ipServerTest),
-		store:      NewPeerStore(),
-	}
+func TestRunExpiredPeersCleanupKeepsPermanentPeer(t *testing.T) {
+	svc := newTestServiceWithSubnet(t, nil)
 	key, _ := wgtypes.GenerateKey()
 	svc.store.Set(PeerRecord{
 		PeerID:     "permanent-peer",
@@ -259,7 +252,7 @@ func TestRunExpiredPeersCleanup_KeepsPermanentPeer(t *testing.T) {
 
 	list, err := svc.ListPeers()
 	if err != nil {
-		t.Fatalf("ListPeers: %v", err)
+		t.Fatalf(msgListPeersFmt, err)
 	}
 	if len(list) != 1 || list[0].PeerID != "permanent-peer" {
 		t.Errorf("expected 1 permanent peer to remain, got %v", list)
@@ -267,16 +260,9 @@ func TestRunExpiredPeersCleanup_KeepsPermanentPeer(t *testing.T) {
 }
 
 func TestCleanupExpiredPeersDeletePeerError(t *testing.T) {
-	_, subnet4, _ := net.ParseCIDR(subnetTestCIDR)
+	svc := newTestServiceWithSubnet(t, errors.New("device busy"))
 	expiredAt := time.Now().UTC().Add(-time.Hour)
 	key, _ := wgtypes.GenerateKey()
-	svc := &WireGuardService{
-		client:     fakeWGClient{device: &wgtypes.Device{}, configureErr: errors.New("device busy")},
-		deviceName: "wg0",
-		subnet4:    subnet4,
-		serverIP4:  net.ParseIP(ipServerTest),
-		store:      NewPeerStore(),
-	}
 	svc.store.Set(PeerRecord{
 		PeerID:     "expired-fail",
 		PublicKey:  key,
@@ -287,7 +273,7 @@ func TestCleanupExpiredPeersDeletePeerError(t *testing.T) {
 	svc.runCleanupSafe()
 	list, err := svc.ListPeers()
 	if err != nil {
-		t.Fatalf("ListPeers: %v", err)
+		t.Fatalf(msgListPeersFmt, err)
 	}
 	if len(list) != 1 {
 		t.Errorf("peer should remain when DeletePeer fails, got %d peers", len(list))
@@ -375,7 +361,7 @@ func TestServerInfo(t *testing.T) {
 }
 
 func TestRecordAllowedIPsInSubnets(t *testing.T) {
-	_, subnet4, _ := net.ParseCIDR("10.0.0.0/24")
+	_, subnet4, _ := net.ParseCIDR(subnetTestCIDR)
 	_, subnet6, _ := net.ParseCIDR(subnet6TestCIDR64)
 	svc := &WireGuardService{
 		subnet4:   subnet4,
@@ -439,17 +425,17 @@ func TestEnsurePeerNewPeer(t *testing.T) {
 		serverIP4:  net.ParseIP(ipServerTest),
 		store:      NewPeerStore(),
 	}
-	info, err := svc.EnsurePeer("new-peer", nil, nil)
+	info, err := svc.EnsurePeer(peerIDNewPeer, nil, nil)
 	if err != nil {
 		t.Fatalf("EnsurePeer: %v", err)
 	}
-	if info.PeerID != "new-peer" || info.PublicKey == "" || info.PrivateKey == "" {
+	if info.PeerID != peerIDNewPeer || info.PublicKey == "" || info.PrivateKey == "" {
 		t.Errorf("unexpected PeerInfo: %+v", info)
 	}
 	if len(info.AllowedIPs) != 1 || !strings.Contains(info.AllowedIPs[0], "10.0.0.") {
 		t.Errorf("unexpected AllowedIPs: %v", info.AllowedIPs)
 	}
-	_, ok := svc.store.Get("new-peer")
+	_, ok := svc.store.Get(peerIDNewPeer)
 	if !ok {
 		t.Error("peer should be in store")
 	}
