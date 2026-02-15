@@ -35,12 +35,13 @@ jobs:
         run: go vet ./...
 
       - name: Run Go tests
-        run: go test -coverprofile=coverage.out ./...
+        run: go test -coverprofile=coverage.txt ./...
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v5
         with:
-          files: coverage.out
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: coverage.txt
           fail_ci_if_error: false
 
       - name: Run govulncheck
