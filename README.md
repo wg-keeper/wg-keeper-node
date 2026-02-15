@@ -149,7 +149,7 @@ When `wireguard.peer_store_file` is set (e.g. `peers.json`):
 | Host reboot or interface recreated | Load file; re-add all store peers to interface |
 | Subnet changed in config | On next startup, peers outside new subnets are removed from store and device |
 
-**Format:** JSON array of objects with `peer_id`, `public_key`, `allowed_ips`, `created_at`, optional `expires_at`. Private keys are never stored. Create the directory with tight permissions; the process writes the file with mode `0600`.
+**Format:** JSON array of objects with `peer_id`, `public_key`, `preshared_key`, `allowed_ips`, `created_at`, optional `expires_at`. The preshared key (post-quantum) is required for every peer; it is stored and applied when restoring peers to the device after reboot. Private keys are never stored. Create the directory with tight permissions; the process writes the file with mode `0600`.
 
 ## WireGuard initialization
 

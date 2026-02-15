@@ -203,8 +203,10 @@ func (s *WireGuardService) reconcileStoreWithDevice() error {
 	var toAdd []wgtypes.PeerConfig
 	for _, rec := range s.store.List() {
 		if !onDevice[rec.PublicKey] {
+			psk := rec.PresharedKey
 			toAdd = append(toAdd, wgtypes.PeerConfig{
 				PublicKey:                   rec.PublicKey,
+				PresharedKey:                &psk,
 				AllowedIPs:                  rec.AllowedIPs,
 				ReplaceAllowedIPs:           true,
 				PersistentKeepaliveInterval: keepaliveInterval(),
@@ -336,11 +338,12 @@ func (s *WireGuardService) EnsurePeer(peerID string, expiresAt *time.Time, addre
 	}
 
 	s.store.Set(PeerRecord{
-		PeerID:     peerID,
-		PublicKey:  publicKey,
-		AllowedIPs: allowedIPs,
-		CreatedAt:  time.Now().UTC(),
-		ExpiresAt:  expiresAt,
+		PeerID:       peerID,
+		PublicKey:    publicKey,
+		PresharedKey: presharedKey,
+		AllowedIPs:   allowedIPs,
+		CreatedAt:    time.Now().UTC(),
+		ExpiresAt:    expiresAt,
 	})
 	if err := s.savePersist(); err != nil {
 		return PeerInfo{}, fmt.Errorf(errSavePeerStoreFmt, err)
@@ -577,11 +580,12 @@ func (s *WireGuardService) rotatePeer(peerID string, record PeerRecord, expiresA
 		effectiveExpiresAt = record.ExpiresAt
 	}
 	s.store.Set(PeerRecord{
-		PeerID:     peerID,
-		PublicKey:  publicKey,
-		AllowedIPs: record.AllowedIPs,
-		CreatedAt:  record.CreatedAt,
-		ExpiresAt:  effectiveExpiresAt,
+		PeerID:       peerID,
+		PublicKey:    publicKey,
+		PresharedKey: presharedKey,
+		AllowedIPs:   record.AllowedIPs,
+		CreatedAt:    record.CreatedAt,
+		ExpiresAt:    effectiveExpiresAt,
 	})
 	if err := s.savePersist(); err != nil {
 		return PeerInfo{}, fmt.Errorf(errSavePeerStoreFmt, err)

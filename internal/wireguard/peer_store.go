@@ -14,20 +14,22 @@ import (
 )
 
 type PeerRecord struct {
-	PeerID     string
-	PublicKey  wgtypes.Key
-	AllowedIPs []net.IPNet // one per address family (IPv4 and/or IPv6)
-	CreatedAt  time.Time
-	ExpiresAt  *time.Time // nil = permanent peer
+	PeerID       string
+	PublicKey    wgtypes.Key
+	PresharedKey wgtypes.Key // required for all peers; used when restoring peer to device
+	AllowedIPs   []net.IPNet // one per address family (IPv4 and/or IPv6)
+	CreatedAt    time.Time
+	ExpiresAt    *time.Time // nil = permanent peer
 }
 
 // peerRecordStored is the JSON format for persistence (IPv4 and/or IPv6 in allowed_ips).
 type peerRecordStored struct {
-	PeerID     string     `json:"peer_id"`
-	PublicKey  string     `json:"public_key"` // base64
-	AllowedIPs []string   `json:"allowed_ips"`
-	CreatedAt  time.Time  `json:"created_at"`
-	ExpiresAt  *time.Time `json:"expires_at,omitempty"`
+	PeerID       string     `json:"peer_id"`
+	PublicKey    string     `json:"public_key"`    // base64
+	PresharedKey string     `json:"preshared_key"` // required for all peers
+	AllowedIPs   []string   `json:"allowed_ips"`
+	CreatedAt    time.Time  `json:"created_at"`
+	ExpiresAt    *time.Time `json:"expires_at,omitempty"`
 }
 
 func storedToRecord(s peerRecordStored) (PeerRecord, error) {
@@ -52,12 +54,20 @@ func storedToRecord(s peerRecordStored) (PeerRecord, error) {
 	if len(nets) == 0 {
 		return PeerRecord{}, errors.New("allowed_ips is required and must contain at least one valid CIDR")
 	}
+	if strings.TrimSpace(s.PresharedKey) == "" {
+		return PeerRecord{}, errors.New("preshared_key is required and must be non-empty")
+	}
+	psk, err := wgtypes.ParseKey(s.PresharedKey)
+	if err != nil {
+		return PeerRecord{}, fmt.Errorf("preshared_key: %w", err)
+	}
 	return PeerRecord{
-		PeerID:     s.PeerID,
-		PublicKey:  key,
-		AllowedIPs: nets,
-		CreatedAt:  s.CreatedAt,
-		ExpiresAt:  s.ExpiresAt,
+		PeerID:       s.PeerID,
+		PublicKey:    key,
+		PresharedKey: psk,
+		AllowedIPs:   nets,
+		CreatedAt:    s.CreatedAt,
+		ExpiresAt:    s.ExpiresAt,
 	}, nil
 }
 
@@ -67,11 +77,12 @@ func recordToStored(r PeerRecord) peerRecordStored {
 		allowedIPs[i] = r.AllowedIPs[i].String()
 	}
 	return peerRecordStored{
-		PeerID:     r.PeerID,
-		PublicKey:  r.PublicKey.String(),
-		AllowedIPs: allowedIPs,
-		CreatedAt:  r.CreatedAt,
-		ExpiresAt:  r.ExpiresAt,
+		PeerID:       r.PeerID,
+		PublicKey:    r.PublicKey.String(),
+		PresharedKey: r.PresharedKey.String(),
+		AllowedIPs:   allowedIPs,
+		CreatedAt:    r.CreatedAt,
+		ExpiresAt:    r.ExpiresAt,
 	}
 }
 
