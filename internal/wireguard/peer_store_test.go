@@ -1,9 +1,11 @@
 package wireguard
 
 import (
+	"fmt"
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -113,5 +115,47 @@ func TestStoredToRecordEmptyPeerID(t *testing.T) {
 	_, err := storedToRecord(stored)
 	if err == nil {
 		t.Fatal("storedToRecord(empty peer_id): expected error, got nil")
+	}
+}
+
+func TestStoredToRecordEmptyAllowedIPs(t *testing.T) {
+	key, _ := wgtypes.GenerateKey()
+	stored := peerRecordStored{
+		PeerID:     "peer-1",
+		PublicKey:  key.String(),
+		AllowedIPs: []string{},
+		CreatedAt:  time.Now().UTC(),
+	}
+	_, err := storedToRecord(stored)
+	if err == nil {
+		t.Fatal("storedToRecord(empty allowed_ips): expected error, got nil")
+	}
+}
+
+func TestLoadFromDataNullRoot(t *testing.T) {
+	store := NewPeerStore()
+	err := store.loadFromData([]byte("null"))
+	if err == nil {
+		t.Fatal("loadFromData(null): expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "must be a JSON array") {
+		t.Errorf("expected error about JSON array, got: %v", err)
+	}
+}
+
+func TestLoadFromDataDuplicatePublicKey(t *testing.T) {
+	key, _ := wgtypes.GenerateKey()
+	keyStr := key.String()
+	data := []byte(fmt.Sprintf(`[
+		{"peer_id":"a","public_key":%q,"allowed_ips":["10.0.0.1/32"],"created_at":"2024-01-01T00:00:00Z"},
+		{"peer_id":"b","public_key":%q,"allowed_ips":["10.0.0.2/32"],"created_at":"2024-01-01T00:00:00Z"}
+	]`, keyStr, keyStr))
+	store := NewPeerStore()
+	err := store.loadFromData(data)
+	if err == nil {
+		t.Fatal("loadFromData(duplicate public_key): expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "duplicate public_key") {
+		t.Errorf("expected error about duplicate public_key, got: %v", err)
 	}
 }
