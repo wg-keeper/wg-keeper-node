@@ -14,18 +14,19 @@ import (
 const errMsgRequired = "%s is required"
 
 type Config struct {
-	Port         int
-	APIKey       string
-	TLSCertFile  string       // path to TLS certificate (PEM); if set, TLSKeyFile must be set too
-	TLSKeyFile   string       // path to TLS private key (PEM)
-	AllowedNets  []*net.IPNet // optional: if non-empty, only these IPs/CIDRs may reach the API
-	WGInterface  string
-	WGSubnet     string // IPv4 CIDR (optional if WGSubnet6 is set)
-	WGServerIP   string // IPv4 server address (optional)
-	WGSubnet6    string // IPv6 CIDR (optional if WGSubnet is set)
-	WGServerIP6  string // IPv6 server address (optional)
-	WGListenPort int
-	WANInterface string
+	Port          int
+	APIKey        string
+	TLSCertFile   string       // path to TLS certificate (PEM); if set, TLSKeyFile must be set too
+	TLSKeyFile    string       // path to TLS private key (PEM)
+	AllowedNets   []*net.IPNet // optional: if non-empty, only these IPs/CIDRs may reach the API
+	WGInterface   string
+	WGSubnet      string // IPv4 CIDR (optional if WGSubnet6 is set)
+	WGServerIP    string // IPv4 server address (optional)
+	WGSubnet6     string // IPv6 CIDR (optional if WGSubnet is set)
+	WGServerIP6   string // IPv6 server address (optional)
+	WGListenPort  int
+	WANInterface  string
+	PeerStoreFile string // optional: path to JSON file for persistent peer store; empty = in-memory only
 }
 
 type wireguardRouting struct {
@@ -43,13 +44,14 @@ type fileConfig struct {
 		APIKey string `yaml:"api_key"`
 	} `yaml:"auth"`
 	WireGuard struct {
-		Interface  string           `yaml:"interface"`
-		Subnet     string           `yaml:"subnet"`
-		ServerIP   string           `yaml:"server_ip"`
-		Subnet6    string           `yaml:"subnet6"`
-		ServerIP6  string           `yaml:"server_ip6"`
-		ListenPort int              `yaml:"listen_port"`
-		Routing    wireguardRouting `yaml:"routing"`
+		Interface     string           `yaml:"interface"`
+		Subnet        string           `yaml:"subnet"`
+		ServerIP      string           `yaml:"server_ip"`
+		Subnet6       string           `yaml:"subnet6"`
+		ServerIP6     string           `yaml:"server_ip6"`
+		ListenPort    int              `yaml:"listen_port"`
+		Routing       wireguardRouting `yaml:"routing"`
+		PeerStoreFile string           `yaml:"peer_store_file"`
 	} `yaml:"wireguard"`
 }
 
@@ -85,23 +87,24 @@ func loadConfigFile(path string) (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
-	wgSubnet, wgSubnet6, wgInterface, wgServerIP, wgServerIP6, wanInterface, wgListenPort, err := parseWireGuard(fc)
+	wgSubnet, wgSubnet6, wgInterface, wgServerIP, wgServerIP6, wanInterface, wgListenPort, peerStoreFile, err := parseWireGuard(fc)
 	if err != nil {
 		return Config{}, err
 	}
 	return Config{
-		Port:         portValue,
-		APIKey:       apiKey,
-		TLSCertFile:  tlsCert,
-		TLSKeyFile:   tlsKey,
-		AllowedNets:  allowedNets,
-		WGInterface:  wgInterface,
-		WGSubnet:     wgSubnet,
-		WGServerIP:   wgServerIP,
-		WGSubnet6:    wgSubnet6,
-		WGServerIP6:  wgServerIP6,
-		WGListenPort: wgListenPort,
-		WANInterface: wanInterface,
+		Port:          portValue,
+		APIKey:        apiKey,
+		TLSCertFile:   tlsCert,
+		TLSKeyFile:    tlsKey,
+		AllowedNets:   allowedNets,
+		WGInterface:   wgInterface,
+		WGSubnet:      wgSubnet,
+		WGServerIP:    wgServerIP,
+		WGSubnet6:     wgSubnet6,
+		WGServerIP6:   wgServerIP6,
+		WGListenPort:  wgListenPort,
+		WANInterface:  wanInterface,
+		PeerStoreFile: strings.TrimSpace(peerStoreFile),
 	}, nil
 }
 
@@ -125,39 +128,40 @@ func parseServerAndAuth(fc fileConfig) (portValue int, apiKey, tlsCert, tlsKey s
 	return portValue, apiKey, tlsCert, tlsKey, allowedNets, nil
 }
 
-func parseWireGuard(fc fileConfig) (wgSubnet, wgSubnet6, wgInterface, wgServerIP, wgServerIP6, wanInterface string, wgListenPort int, err error) {
+func parseWireGuard(fc fileConfig) (wgSubnet, wgSubnet6, wgInterface, wgServerIP, wgServerIP6, wanInterface string, wgListenPort int, peerStoreFile string, err error) {
 	wgSubnet, err = optionalCIDR("wireguard.subnet", fc.WireGuard.Subnet)
 	if err != nil {
-		return "", "", "", "", "", "", 0, err
+		return "", "", "", "", "", "", 0, "", err
 	}
 	wgSubnet6, err = optionalCIDR("wireguard.subnet6", fc.WireGuard.Subnet6)
 	if err != nil {
-		return "", "", "", "", "", "", 0, err
+		return "", "", "", "", "", "", 0, "", err
 	}
 	if err := validateWireGuardSubnets(wgSubnet, wgSubnet6); err != nil {
-		return "", "", "", "", "", "", 0, err
+		return "", "", "", "", "", "", 0, "", err
 	}
 	wgInterface, err = requireString("wireguard.interface", fc.WireGuard.Interface)
 	if err != nil {
-		return "", "", "", "", "", "", 0, err
+		return "", "", "", "", "", "", 0, "", err
 	}
 	wgListenPort = fc.WireGuard.ListenPort
 	if err := requirePort("wireguard.listen_port", wgListenPort); err != nil {
-		return "", "", "", "", "", "", 0, err
+		return "", "", "", "", "", "", 0, "", err
 	}
 	wgServerIP, err = optionalIPv4("wireguard.server_ip", fc.WireGuard.ServerIP)
 	if err != nil {
-		return "", "", "", "", "", "", 0, err
+		return "", "", "", "", "", "", 0, "", err
 	}
 	wgServerIP6, err = optionalIPv6("wireguard.server_ip6", fc.WireGuard.ServerIP6)
 	if err != nil {
-		return "", "", "", "", "", "", 0, err
+		return "", "", "", "", "", "", 0, "", err
 	}
 	wanInterface, err = requireString("wireguard.routing.wan_interface", fc.WireGuard.Routing.WANInterface)
 	if err != nil {
-		return "", "", "", "", "", "", 0, err
+		return "", "", "", "", "", "", 0, "", err
 	}
-	return wgSubnet, wgSubnet6, wgInterface, wgServerIP, wgServerIP6, wanInterface, wgListenPort, nil
+	peerStoreFile = strings.TrimSpace(fc.WireGuard.PeerStoreFile)
+	return wgSubnet, wgSubnet6, wgInterface, wgServerIP, wgServerIP6, wanInterface, wgListenPort, peerStoreFile, nil
 }
 
 func validateWireGuardSubnets(wgSubnet, wgSubnet6 string) error {

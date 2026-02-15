@@ -348,3 +348,29 @@ wireguard:
 		t.Fatalf("expected error for invalid allowed_ips entry")
 	}
 }
+
+func TestLoadConfigPeerStoreFile(t *testing.T) {
+	path := writeConfigFile(t, `
+server:
+  port: "51821"
+auth:
+  api_key: "test-key"
+wireguard:
+  interface: "wg0"
+  subnet: "10.0.0.0/24"
+  server_ip: "10.0.0.1"
+  listen_port: 51820
+  peer_store_file: "peers.json"
+  routing:
+    wan_interface: "eth0"
+`)
+	t.Setenv("NODE_CONFIG", path)
+
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatalf(msgExpectedNoError, err)
+	}
+	if cfg.PeerStoreFile != "peers.json" {
+		t.Fatalf("expected peer_store_file peers.json, got %q", cfg.PeerStoreFile)
+	}
+}

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"os"
 	"time"
 
 	"github.com/wg-keeper/wg-keeper-node/internal/config"
@@ -38,13 +39,14 @@ type PeerInfo struct {
 }
 
 type WireGuardService struct {
-	client     wgClient
-	deviceName string
-	subnet4    *net.IPNet
-	serverIP4  net.IP
-	subnet6    *net.IPNet
-	serverIP6  net.IP
-	store      *PeerStore
+	client      wgClient
+	deviceName  string
+	subnet4     *net.IPNet
+	serverIP4   net.IP
+	subnet6     *net.IPNet
+	serverIP6   net.IP
+	store       *PeerStore
+	persistPath string // if set, peer store is persisted to this file
 }
 
 type wgClient interface {
@@ -135,15 +137,92 @@ func NewWireGuardService(cfg config.Config) (*WireGuardService, error) {
 		}
 	}
 
-	return &WireGuardService{
-		client:     client,
-		deviceName: cfg.WGInterface,
-		subnet4:    subnet4,
-		serverIP4:  serverIP4,
-		subnet6:    subnet6,
-		serverIP6:  serverIP6,
-		store:      NewPeerStore(),
-	}, nil
+	svc := &WireGuardService{
+		client:      client,
+		deviceName:  cfg.WGInterface,
+		subnet4:     subnet4,
+		serverIP4:   serverIP4,
+		subnet6:     subnet6,
+		serverIP6:   serverIP6,
+		store:       NewPeerStore(),
+		persistPath: cfg.PeerStoreFile,
+	}
+	if svc.persistPath != "" {
+		info, err := os.Stat(svc.persistPath)
+		if err == nil && info.IsDir() {
+			return nil, fmt.Errorf("wireguard.peer_store_file must not be a directory: %s", svc.persistPath)
+		}
+		if err := svc.store.LoadFromFileIfExists(svc.persistPath); err != nil {
+			return nil, fmt.Errorf("load peer store: %w", err)
+		}
+		changed := svc.reconcileStoreWithDevice()
+		if svc.reconcileStoreWithSubnets() {
+			changed = true
+		}
+		if changed {
+			if err := svc.store.SaveToFile(svc.persistPath); err != nil {
+				return nil, fmt.Errorf("save peer store after reconcile: %w", err)
+			}
+		}
+	}
+	return svc, nil
+}
+
+// reconcileStoreWithDevice removes from store any record whose public key is not present on the device.
+// Returns true if any record was removed.
+func (s *WireGuardService) reconcileStoreWithDevice() bool {
+	device, err := s.client.Device(s.deviceName)
+	if err != nil {
+		return false
+	}
+	onDevice := make(map[wgtypes.Key]bool)
+	for i := range device.Peers {
+		onDevice[device.Peers[i].PublicKey] = true
+	}
+	var changed bool
+	for _, rec := range s.store.List() {
+		if !onDevice[rec.PublicKey] {
+			s.store.Delete(rec.PeerID)
+			changed = true
+		}
+	}
+	return changed
+}
+
+// reconcileStoreWithSubnets removes from store and from the device any record whose allowed_ips
+// are not entirely within the current config subnets (subnet4/subnet6).
+// Returns true if any record was removed.
+func (s *WireGuardService) reconcileStoreWithSubnets() bool {
+	var changed bool
+	for _, rec := range s.store.List() {
+		if !s.recordAllowedIPsInSubnets(rec) {
+			_ = s.client.ConfigureDevice(s.deviceName, wgtypes.Config{
+				Peers: []wgtypes.PeerConfig{{PublicKey: rec.PublicKey, Remove: true}},
+			})
+			s.store.Delete(rec.PeerID)
+			changed = true
+		}
+	}
+	return changed
+}
+
+func (s *WireGuardService) recordAllowedIPsInSubnets(rec PeerRecord) bool {
+	for _, aip := range rec.AllowedIPs {
+		in4 := s.subnet4 != nil && s.subnet4.Contains(aip.IP)
+		in6 := s.subnet6 != nil && s.subnet6.Contains(aip.IP)
+		if !in4 && !in6 {
+			return false
+		}
+	}
+	return true
+}
+
+// savePersist writes the peer store to the persistence file if configured.
+func (s *WireGuardService) savePersist() {
+	if s.persistPath == "" {
+		return
+	}
+	_ = s.store.SaveToFile(s.persistPath)
 }
 
 // NodeAddressFamilies returns the address families this node supports (e.g. ["IPv4", "IPv6"]).
@@ -234,6 +313,7 @@ func (s *WireGuardService) EnsurePeer(peerID string, expiresAt *time.Time, addre
 		CreatedAt:  time.Now().UTC(),
 		ExpiresAt:  expiresAt,
 	})
+	s.savePersist()
 
 	allowedIPsStr := make([]string, len(allowedIPs))
 	for i := range allowedIPs {
@@ -273,6 +353,7 @@ func (s *WireGuardService) DeletePeer(peerID string) error {
 	}
 
 	s.store.Delete(peerID)
+	s.savePersist()
 	return nil
 }
 
@@ -469,6 +550,7 @@ func (s *WireGuardService) rotatePeer(peerID string, record PeerRecord, expiresA
 		CreatedAt:  record.CreatedAt,
 		ExpiresAt:  effectiveExpiresAt,
 	})
+	s.savePersist()
 
 	allowedIPsStr := make([]string, len(record.AllowedIPs))
 	peerFamilies := make([]string, 0, 2)

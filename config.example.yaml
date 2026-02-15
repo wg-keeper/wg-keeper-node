@@ -18,5 +18,8 @@ wireguard:
   # subnet6: "fd00::/112"
   # server_ip6: "fd00::1"
   listen_port: 51820
+  # Optional: persist peer store to a JSON file (load on startup, save on every change).
+  # For Docker: use "/app/peers/peers.json" and mount ./peers:/app/peers so the app creates the file.
+  # peer_store_file: "/var/lib/wg-keeper/peers.json"
   routing:
     wan_interface: "eth0"
