@@ -97,7 +97,7 @@ func TestLoadFromFileIfExistsEmptyFile(t *testing.T) {
 		t.Fatalf("write empty file: %v", err)
 	}
 	store := NewPeerStore()
-	if err := store.LoadFromFileIfExists(path); err == nil {
+	if store.LoadFromFileIfExists(path) == nil {
 		t.Fatal("LoadFromFileIfExists(empty file): expected error, got nil")
 	}
 }

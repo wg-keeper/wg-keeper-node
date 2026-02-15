@@ -104,39 +104,14 @@ func NewWireGuardService(cfg config.Config) (*WireGuardService, error) {
 	if err != nil {
 		return nil, err
 	}
-
-	var subnet4, subnet6 *net.IPNet
-	var serverIP4, serverIP6 net.IP
-
-	if cfg.WGSubnet != "" {
-		_, sub, err := net.ParseCIDR(cfg.WGSubnet)
-		if err != nil {
-			return nil, fmt.Errorf("invalid WG_SUBNET: %w", err)
-		}
-		if sub.IP.To4() == nil {
-			return nil, errors.New("wireguard.subnet must be IPv4")
-		}
-		subnet4 = sub
-		serverIP4, err = resolveServerIP4(subnet4, cfg.WGServerIP)
-		if err != nil {
-			return nil, err
-		}
+	subnet4, serverIP4, err := setupSubnet4(cfg.WGSubnet, cfg.WGServerIP)
+	if err != nil {
+		return nil, err
 	}
-	if cfg.WGSubnet6 != "" {
-		_, sub, err := net.ParseCIDR(cfg.WGSubnet6)
-		if err != nil {
-			return nil, fmt.Errorf("invalid WG_SUBNET6: %w", err)
-		}
-		if sub.IP.To4() != nil {
-			return nil, errors.New("wireguard.subnet6 must be IPv6")
-		}
-		subnet6 = sub
-		serverIP6, err = resolveServerIP6(subnet6, cfg.WGServerIP6)
-		if err != nil {
-			return nil, err
-		}
+	subnet6, serverIP6, err := setupSubnet6(cfg.WGSubnet6, cfg.WGServerIP6)
+	if err != nil {
+		return nil, err
 	}
-
 	svc := &WireGuardService{
 		client:      client,
 		deviceName:  cfg.WGInterface,
@@ -147,25 +122,67 @@ func NewWireGuardService(cfg config.Config) (*WireGuardService, error) {
 		store:       NewPeerStore(),
 		persistPath: cfg.PeerStoreFile,
 	}
-	if svc.persistPath != "" {
-		info, err := os.Stat(svc.persistPath)
-		if err == nil && info.IsDir() {
-			return nil, fmt.Errorf("wireguard.peer_store_file must not be a directory: %s", svc.persistPath)
-		}
-		if err := svc.store.LoadFromFileIfExists(svc.persistPath); err != nil {
-			return nil, fmt.Errorf("load peer store: %w", err)
-		}
-		changed := svc.reconcileStoreWithDevice()
-		if svc.reconcileStoreWithSubnets() {
-			changed = true
-		}
-		if changed {
-			if err := svc.store.SaveToFile(svc.persistPath); err != nil {
-				return nil, fmt.Errorf("save peer store after reconcile: %w", err)
-			}
-		}
+	if err := initPersistStore(svc); err != nil {
+		return nil, err
 	}
 	return svc, nil
+}
+
+func setupSubnet4(subnet, serverIP string) (*net.IPNet, net.IP, error) {
+	if subnet == "" {
+		return nil, nil, nil
+	}
+	_, sub, err := net.ParseCIDR(subnet)
+	if err != nil {
+		return nil, nil, fmt.Errorf("invalid WG_SUBNET: %w", err)
+	}
+	if sub.IP.To4() == nil {
+		return nil, nil, errors.New("wireguard.subnet must be IPv4")
+	}
+	ip, err := resolveServerIP4(sub, serverIP)
+	if err != nil {
+		return nil, nil, err
+	}
+	return sub, ip, nil
+}
+
+func setupSubnet6(subnet6, serverIP6 string) (*net.IPNet, net.IP, error) {
+	if subnet6 == "" {
+		return nil, nil, nil
+	}
+	_, sub, err := net.ParseCIDR(subnet6)
+	if err != nil {
+		return nil, nil, fmt.Errorf("invalid WG_SUBNET6: %w", err)
+	}
+	if sub.IP.To4() != nil {
+		return nil, nil, errors.New("wireguard.subnet6 must be IPv6")
+	}
+	ip, err := resolveServerIP6(sub, serverIP6)
+	if err != nil {
+		return nil, nil, err
+	}
+	return sub, ip, nil
+}
+
+func initPersistStore(svc *WireGuardService) error {
+	if svc.persistPath == "" {
+		return nil
+	}
+	info, err := os.Stat(svc.persistPath)
+	if err == nil && info.IsDir() {
+		return fmt.Errorf("wireguard.peer_store_file must not be a directory: %s", svc.persistPath)
+	}
+	if err := svc.store.LoadFromFileIfExists(svc.persistPath); err != nil {
+		return fmt.Errorf("load peer store: %w", err)
+	}
+	changed := svc.reconcileStoreWithDevice()
+	changed = svc.reconcileStoreWithSubnets() || changed
+	if changed {
+		if err := svc.store.SaveToFile(svc.persistPath); err != nil {
+			return fmt.Errorf("save peer store after reconcile: %w", err)
+		}
+	}
+	return nil
 }
 
 // reconcileStoreWithDevice removes from store any record whose public key is not present on the device.
