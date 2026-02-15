@@ -15,14 +15,15 @@ import (
 )
 
 const (
-	pathStats         = "/stats"
-	pathPeers         = "/peers"
-	pathPeersPeerID   = "/peers/:peerId"
-	pathPeersTestUUID = "/peers/550e8400-e29b-41d4-a716-446655440000"
-	testAllowedIP     = "10.0.0.2/32"
-	testAPIKey        = "key"
-	createPeerBody    = `{"peerId":"550e8400-e29b-41d4-a716-446655440000"}`
-	msgInvalidJSON    = "invalid json: %v"
+	pathStats               = "/stats"
+	pathPeers               = "/peers"
+	pathPeersPeerID         = "/peers/:peerId"
+	pathPeersTestUUID       = "/peers/550e8400-e29b-41d4-a716-446655440000"
+	testAllowedIP           = "10.0.0.2/32"
+	testAPIKey              = "key"
+	createPeerBody          = `{"peerId":"550e8400-e29b-41d4-a716-446655440000"}`
+	msgInvalidJSON          = "invalid json: %v"
+	errMsgDeviceUnavailable = "device unavailable"
 )
 
 func newTestRouter() *gin.Engine {
@@ -85,12 +86,26 @@ func performRequest(t *testing.T, router *gin.Engine, method, path string, body 
 	t.Helper()
 	req := httptest.NewRequest(method, path, bytes.NewReader(body))
 	if apiKey != "" {
-		req.Header.Set("X-API-Key", apiKey)
+		req.Header.Set(apiKeyHeader, apiKey)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 	return rec
+}
+
+func TestHealthHandler(t *testing.T) {
+	router := newTestRouter()
+	router.GET("/health", healthHandler)
+	rec := performRequest(t, router, http.MethodGet, "/health", nil, "")
+	assertStatus(t, rec, http.StatusOK)
+	var payload map[string]interface{}
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf(msgInvalidJSON, err)
+	}
+	if payload["status"] != "ok" {
+		t.Errorf("expected status ok, got %v", payload["status"])
+	}
 }
 
 func TestStatsHandlerSuccess(t *testing.T) {
@@ -149,6 +164,19 @@ func TestCreatePeerEnsureError(t *testing.T) {
 	assertStatus(t, rec, http.StatusConflict)
 }
 
+func TestCreatePeerWireguardError(t *testing.T) {
+	router := newTestRouter()
+	router.POST(pathPeers, apiKeyMiddleware(testAPIKey), createPeerHandler(mockWGService{
+		ensurePeerFunc: func(string, *time.Time, []string) (wireguard.PeerInfo, error) {
+			return wireguard.PeerInfo{}, errors.New("device unavailable")
+		},
+	}, false))
+
+	rec := performRequest(t, router, http.MethodPost, pathPeers, []byte(createPeerBody), testAPIKey)
+	assertStatus(t, rec, http.StatusInternalServerError)
+	assertJSONErrorCode(t, rec.Body.Bytes(), "wireguard_error")
+}
+
 func TestCreatePeerUnsupportedAddressFamily(t *testing.T) {
 	router := newTestRouter()
 	router.POST(pathPeers, apiKeyMiddleware(testAPIKey), createPeerHandler(mockWGService{
@@ -203,6 +231,44 @@ func TestCreatePeerExpiresAtInPast(t *testing.T) {
 	assertJSONErrorCode(t, rec.Body.Bytes(), "invalid_expires_at")
 }
 
+func TestCreatePeerExpiresAtInvalidFormat(t *testing.T) {
+	router := newTestRouter()
+	router.POST(pathPeers, apiKeyMiddleware(testAPIKey), createPeerHandler(mockWGService{}, false))
+
+	body := []byte(`{"peerId":"550e8400-e29b-41d4-a716-446655440000","expiresAt":"not-a-date"}`)
+	rec := performRequest(t, router, http.MethodPost, pathPeers, body, testAPIKey)
+	assertStatus(t, rec, http.StatusBadRequest)
+	assertJSONErrorCode(t, rec.Body.Bytes(), "invalid_expires_at")
+}
+
+func TestCreatePeerExpiresAtFuture(t *testing.T) {
+	router := newTestRouter()
+	future := time.Now().Add(24 * time.Hour).UTC().Format(time.RFC3339)
+	router.POST(pathPeers, apiKeyMiddleware(testAPIKey), createPeerHandler(mockWGService{
+		ensurePeerFunc: func(string, *time.Time, []string) (wireguard.PeerInfo, error) {
+			return wireguard.PeerInfo{PeerID: "p1", PublicKey: "pk", PrivateKey: "sk", PresharedKey: "psk", AllowedIPs: []string{testAllowedIP}, AddressFamilies: []string{"IPv4"}}, nil
+		},
+		serverInfoFunc: func() (string, int, error) { return "spub", 51820, nil },
+	}, false))
+
+	body := []byte(`{"peerId":"550e8400-e29b-41d4-a716-446655440000","expiresAt":"` + future + `"}`)
+	rec := performRequest(t, router, http.MethodPost, pathPeers, body, testAPIKey)
+	assertStatus(t, rec, http.StatusOK)
+}
+
+func TestGetPeerWireguardError(t *testing.T) {
+	router := newTestRouter()
+	router.GET(pathPeersPeerID, apiKeyMiddleware(testAPIKey), getPeerHandler(mockWGService{
+		getPeerFunc: func(string) (*wireguard.PeerDetail, error) {
+			return nil, errors.New(errMsgDeviceUnavailable)
+		},
+	}, false))
+
+	rec := performRequest(t, router, http.MethodGet, pathPeersTestUUID, nil, testAPIKey)
+	assertStatus(t, rec, http.StatusInternalServerError)
+	assertJSONErrorCode(t, rec.Body.Bytes(), "wireguard_error")
+}
+
 func TestBodyLimitTooLarge(t *testing.T) {
 	router := newTestRouter()
 	router.Use(bodyLimitMiddleware(MaxRequestBodySize))
@@ -244,6 +310,19 @@ func TestDeletePeerSuccess(t *testing.T) {
 
 	rec := performRequest(t, router, http.MethodDelete, pathPeersTestUUID, nil, testAPIKey)
 	assertStatus(t, rec, http.StatusOK)
+}
+
+func TestDeletePeerWireguardError(t *testing.T) {
+	router := newTestRouter()
+	router.DELETE(pathPeersPeerID, apiKeyMiddleware(testAPIKey), deletePeerHandler(mockWGService{
+		deletePeerFunc: func(string) error {
+			return errors.New("device busy")
+		},
+	}, false))
+
+	rec := performRequest(t, router, http.MethodDelete, pathPeersTestUUID, nil, testAPIKey)
+	assertStatus(t, rec, http.StatusInternalServerError)
+	assertJSONErrorCode(t, rec.Body.Bytes(), "wireguard_error")
 }
 
 func TestStatsHandlerErrorWithDebugDetail(t *testing.T) {
@@ -288,11 +367,32 @@ func TestListPeersSuccess(t *testing.T) {
 	}
 }
 
+func TestListPeersNilListReturnsEmpty(t *testing.T) {
+	router := newTestRouter()
+	router.GET(pathPeers, apiKeyMiddleware(testAPIKey), listPeersHandler(mockWGService{
+		listPeersFunc: func() ([]wireguard.PeerListItem, error) {
+			return nil, nil
+		},
+	}, false))
+
+	rec := performRequest(t, router, http.MethodGet, pathPeers, nil, testAPIKey)
+	assertStatus(t, rec, http.StatusOK)
+	var payload struct {
+		Peers []wireguard.PeerListItem `json:"peers"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf(msgInvalidJSON, err)
+	}
+	if payload.Peers == nil || len(payload.Peers) != 0 {
+		t.Fatalf("expected empty peers array, got %v", payload.Peers)
+	}
+}
+
 func TestListPeersError(t *testing.T) {
 	router := newTestRouter()
 	router.GET(pathPeers, apiKeyMiddleware(testAPIKey), listPeersHandler(mockWGService{
 		listPeersFunc: func() ([]wireguard.PeerListItem, error) {
-			return nil, errors.New("device unavailable")
+			return nil, errors.New(errMsgDeviceUnavailable)
 		},
 	}, false))
 
