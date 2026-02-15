@@ -17,6 +17,8 @@ import (
 const (
 	FamilyIPv4 = "IPv4"
 	FamilyIPv6 = "IPv6"
+
+	errSavePeerStoreFmt = "save peer store: %w"
 )
 
 var (
@@ -175,7 +177,10 @@ func initPersistStore(svc *WireGuardService) error {
 	if err := svc.store.LoadFromFileIfExists(svc.persistPath); err != nil {
 		return fmt.Errorf("load peer store: %w", err)
 	}
-	changed := svc.reconcileStoreWithDevice()
+	changed, err := svc.reconcileStoreWithDevice()
+	if err != nil {
+		return fmt.Errorf("reconcile peer store with device: %w", err)
+	}
 	changed = svc.reconcileStoreWithSubnets() || changed
 	if changed {
 		if err := svc.store.SaveToFile(svc.persistPath); err != nil {
@@ -186,11 +191,11 @@ func initPersistStore(svc *WireGuardService) error {
 }
 
 // reconcileStoreWithDevice removes from store any record whose public key is not present on the device.
-// Returns true if any record was removed.
-func (s *WireGuardService) reconcileStoreWithDevice() bool {
+// Returns (true, nil) if any record was removed, (false, nil) if not, or (false, err) if the device cannot be read.
+func (s *WireGuardService) reconcileStoreWithDevice() (bool, error) {
 	device, err := s.client.Device(s.deviceName)
 	if err != nil {
-		return false
+		return false, err
 	}
 	onDevice := make(map[wgtypes.Key]bool)
 	for i := range device.Peers {
@@ -203,7 +208,7 @@ func (s *WireGuardService) reconcileStoreWithDevice() bool {
 			changed = true
 		}
 	}
-	return changed
+	return changed, nil
 }
 
 // reconcileStoreWithSubnets removes from store and from the device any record whose allowed_ips
@@ -235,11 +240,12 @@ func (s *WireGuardService) recordAllowedIPsInSubnets(rec PeerRecord) bool {
 }
 
 // savePersist writes the peer store to the persistence file if configured.
-func (s *WireGuardService) savePersist() {
+// Returns an error if persistence is enabled and the write fails.
+func (s *WireGuardService) savePersist() error {
 	if s.persistPath == "" {
-		return
+		return nil
 	}
-	_ = s.store.SaveToFile(s.persistPath)
+	return s.store.SaveToFile(s.persistPath)
 }
 
 // NodeAddressFamilies returns the address families this node supports (e.g. ["IPv4", "IPv6"]).
@@ -330,7 +336,9 @@ func (s *WireGuardService) EnsurePeer(peerID string, expiresAt *time.Time, addre
 		CreatedAt:  time.Now().UTC(),
 		ExpiresAt:  expiresAt,
 	})
-	s.savePersist()
+	if err := s.savePersist(); err != nil {
+		return PeerInfo{}, fmt.Errorf(errSavePeerStoreFmt, err)
+	}
 
 	allowedIPsStr := make([]string, len(allowedIPs))
 	for i := range allowedIPs {
@@ -370,7 +378,9 @@ func (s *WireGuardService) DeletePeer(peerID string) error {
 	}
 
 	s.store.Delete(peerID)
-	s.savePersist()
+	if err := s.savePersist(); err != nil {
+		return fmt.Errorf(errSavePeerStoreFmt, err)
+	}
 	return nil
 }
 
@@ -567,7 +577,9 @@ func (s *WireGuardService) rotatePeer(peerID string, record PeerRecord, expiresA
 		CreatedAt:  record.CreatedAt,
 		ExpiresAt:  effectiveExpiresAt,
 	})
-	s.savePersist()
+	if err := s.savePersist(); err != nil {
+		return PeerInfo{}, fmt.Errorf(errSavePeerStoreFmt, err)
+	}
 
 	allowedIPsStr := make([]string, len(record.AllowedIPs))
 	peerFamilies := make([]string, 0, 2)

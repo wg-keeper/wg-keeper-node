@@ -49,6 +49,9 @@ func storedToRecord(s peerRecordStored) (PeerRecord, error) {
 		}
 		nets = append(nets, *ipNet)
 	}
+	if len(nets) == 0 {
+		return PeerRecord{}, errors.New("allowed_ips is required and must contain at least one valid CIDR")
+	}
 	return PeerRecord{
 		PeerID:     s.PeerID,
 		PublicKey:  key,
@@ -147,7 +150,11 @@ func (s *PeerStore) loadFromData(data []byte) error {
 	if err := json.Unmarshal(data, &stored); err != nil {
 		return fmt.Errorf("peer store file: invalid JSON: %w", err)
 	}
-	seen := make(map[string]bool, len(stored))
+	if stored == nil {
+		return fmt.Errorf("peer store file: root must be a JSON array, not null")
+	}
+	seenPeerID := make(map[string]bool, len(stored))
+	seenPublicKey := make(map[wgtypes.Key]bool, len(stored))
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.peers = make(map[string]PeerRecord, len(stored))
@@ -156,10 +163,14 @@ func (s *PeerStore) loadFromData(data []byte) error {
 		if err != nil {
 			return fmt.Errorf("peer store file: record %d (peer_id %q): %w", i, stored[i].PeerID, err)
 		}
-		if seen[rec.PeerID] {
+		if seenPeerID[rec.PeerID] {
 			return fmt.Errorf("peer store file: duplicate peer_id %q", rec.PeerID)
 		}
-		seen[rec.PeerID] = true
+		if seenPublicKey[rec.PublicKey] {
+			return fmt.Errorf("peer store file: duplicate public_key in record %d (peer_id %q)", i, rec.PeerID)
+		}
+		seenPeerID[rec.PeerID] = true
+		seenPublicKey[rec.PublicKey] = true
 		s.peers[rec.PeerID] = rec
 	}
 	return nil
