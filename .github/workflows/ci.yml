@@ -37,6 +37,11 @@ jobs:
       - name: Run Go tests
         run: go test -coverprofile=coverage.out ./...
 
+      - name: Run govulncheck
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          govulncheck ./...
+
       - name: Install golangci-lint
         run: go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
 

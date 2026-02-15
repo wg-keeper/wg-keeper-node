@@ -16,14 +16,14 @@ const errMsgRequired = "%s is required"
 type Config struct {
 	Port         int
 	APIKey       string
-	TLSCertFile  string // path to TLS certificate (PEM); if set, TLSKeyFile must be set too
-	TLSKeyFile   string // path to TLS private key (PEM)
+	TLSCertFile  string       // path to TLS certificate (PEM); if set, TLSKeyFile must be set too
+	TLSKeyFile   string       // path to TLS private key (PEM)
 	AllowedNets  []*net.IPNet // optional: if non-empty, only these IPs/CIDRs may reach the API
 	WGInterface  string
-	WGSubnet     string   // IPv4 CIDR (optional if WGSubnet6 is set)
-	WGServerIP   string   // IPv4 server address (optional)
-	WGSubnet6    string   // IPv6 CIDR (optional if WGSubnet is set)
-	WGServerIP6  string   // IPv6 server address (optional)
+	WGSubnet     string // IPv4 CIDR (optional if WGSubnet6 is set)
+	WGServerIP   string // IPv4 server address (optional)
+	WGSubnet6    string // IPv6 CIDR (optional if WGSubnet is set)
+	WGServerIP6  string // IPv6 server address (optional)
 	WGListenPort int
 	WANInterface string
 }
@@ -37,7 +37,7 @@ type fileConfig struct {
 		Port       string   `yaml:"port"`
 		TLSCert    string   `yaml:"tls_cert"`
 		TLSKey     string   `yaml:"tls_key"`
-		AllowedIPs []string  `yaml:"allowed_ips"`
+		AllowedIPs []string `yaml:"allowed_ips"`
 	} `yaml:"server"`
 	Auth struct {
 		APIKey string `yaml:"api_key"`

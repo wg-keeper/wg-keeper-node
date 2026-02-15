@@ -123,9 +123,9 @@ func newHTTPServer(cfg config.Config, addr string, wgService *wireguard.WireGuar
 		Addr:              addr,
 		Handler:           server.NewRouter(cfg.APIKey, cfg.AllowedNets, wgService, debug),
 		ReadHeaderTimeout: 10 * time.Second,
-		ReadTimeout:      30 * time.Second,
-		WriteTimeout:     30 * time.Second,
-		IdleTimeout:      120 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       120 * time.Second,
 	}
 	if cfg.TLSEnabled() {
 		srv.TLSConfig = &tls.Config{MinVersion: tls.VersionTLS12}

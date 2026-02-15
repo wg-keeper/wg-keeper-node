@@ -14,16 +14,22 @@ const debugKey = "debug"
 
 func NewRouter(apiKey string, allowedNets []*net.IPNet, wgService *wireguard.WireGuardService, debug bool) *gin.Engine {
 	router := gin.New()
+	router.Use(requestIDMiddleware())
+	router.Use(securityHeadersMiddleware())
+	router.Use(bodyLimitMiddleware(MaxRequestBodySize))
+	router.Use(newRateLimitMiddleware(allowedNets))
 	router.Use(debugMiddleware(debug))
 	router.Use(gin.LoggerWithFormatter(func(param gin.LogFormatterParams) string {
+		requestID := GetRequestIDFromContext(param.Request.Context())
 		return fmt.Sprintf(
-			"time=%s level=info msg=\"http request\" method=%s path=%s status=%d latency=%s ip=%s\n",
+			"time=%s level=info msg=\"http request\" method=%s path=%s status=%d latency=%s ip=%s request_id=%s\n",
 			param.TimeStamp.Format(time.RFC3339),
 			param.Method,
 			param.Path,
 			param.StatusCode,
 			param.Latency,
 			param.ClientIP,
+			requestID,
 		)
 	}), gin.Recovery())
 	registerRoutes(router, apiKey, allowedNets, wgService, debug)
