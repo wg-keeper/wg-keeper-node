@@ -47,19 +47,29 @@ func TestBuildConfigContentWithPostUp(t *testing.T) {
 	}
 }
 
+func assertRoutingRulesNil(t *testing.T, up, down []string) {
+	t.Helper()
+	if up != nil || down != nil {
+		t.Errorf("expected nil, got up=%v down=%v", up, down)
+	}
+}
+
+func assertRoutingRulesCount(t *testing.T, up, down []string, want int) {
+	t.Helper()
+	if len(up) != want || len(down) != want {
+		t.Errorf("expected %d up and down, got %d up %d down", want, len(up), len(down))
+	}
+}
+
 func TestBuildRoutingRules(t *testing.T) {
 	t.Run("empty_wan_returns_nil", func(t *testing.T) {
 		up, down := buildRoutingRules(config.Config{})
-		if up != nil || down != nil {
-			t.Errorf("expected nil, got up=%v down=%v", up, down)
-		}
+		assertRoutingRulesNil(t, up, down)
 	})
 
 	t.Run("wan_only_no_subnet_returns_nil", func(t *testing.T) {
 		up, down := buildRoutingRules(config.Config{WANInterface: "eth0"})
-		if up != nil || down != nil {
-			t.Errorf("expected nil without subnet, got up=%v down=%v", up, down)
-		}
+		assertRoutingRulesNil(t, up, down)
 	})
 
 	t.Run("wan_and_subnet4_returns_rules", func(t *testing.T) {
@@ -68,9 +78,7 @@ func TestBuildRoutingRules(t *testing.T) {
 		if len(up) == 0 || len(down) == 0 {
 			t.Errorf("expected rules, got up=%v down=%v", up, down)
 		}
-		if len(up) != 3 || len(down) != 3 {
-			t.Errorf("expected 3 up and 3 down, got %d up %d down", len(up), len(down))
-		}
+		assertRoutingRulesCount(t, up, down, 3)
 	})
 
 	t.Run("wan_and_subnet6_returns_ip6tables_rules", func(t *testing.T) {
@@ -79,8 +87,7 @@ func TestBuildRoutingRules(t *testing.T) {
 		if len(up) == 0 || len(down) == 0 {
 			t.Errorf("expected rules, got up=%v down=%v", up, down)
 		}
-		joined := strings.Join(up, " ")
-		if !strings.Contains(joined, "ip6tables") {
+		if !strings.Contains(strings.Join(up, " "), "ip6tables") {
 			t.Error("expected ip6tables in rules")
 		}
 	})
@@ -153,18 +160,31 @@ func TestBuildAddressLines(t *testing.T) {
 	})
 }
 
+func assertCheckExisting(t *testing.T, path string, wantExists bool, wantErr bool) {
+	t.Helper()
+	exists, err := checkExistingConfig(path)
+	if wantErr {
+		if err == nil {
+			t.Error("expected error when path is directory")
+		}
+		if exists {
+			t.Error("expected false when path is directory")
+		}
+		return
+	}
+	if err != nil {
+		t.Fatalf(msgUnexpectedError, err)
+	}
+	if exists != wantExists {
+		t.Errorf("exists: got %v, want %v", exists, wantExists)
+	}
+}
+
 func TestCheckExistingConfig(t *testing.T) {
 	dir := t.TempDir()
 
 	t.Run("not_exists", func(t *testing.T) {
-		path := filepath.Join(dir, "nonexistent")
-		exists, err := checkExistingConfig(path)
-		if err != nil {
-			t.Fatalf(msgUnexpectedError, err)
-		}
-		if exists {
-			t.Error("expected false for missing file")
-		}
+		assertCheckExisting(t, filepath.Join(dir, "nonexistent"), false, false)
 	})
 
 	t.Run("exists_as_file", func(t *testing.T) {
@@ -172,13 +192,7 @@ func TestCheckExistingConfig(t *testing.T) {
 		if err := os.WriteFile(path, []byte("x"), 0o600); err != nil {
 			t.Fatalf("write file: %v", err)
 		}
-		exists, err := checkExistingConfig(path)
-		if err != nil {
-			t.Fatalf(msgUnexpectedError, err)
-		}
-		if !exists {
-			t.Error("expected true for existing file")
-		}
+		assertCheckExisting(t, path, true, false)
 	})
 
 	t.Run("path_is_directory", func(t *testing.T) {
@@ -186,13 +200,7 @@ func TestCheckExistingConfig(t *testing.T) {
 		if err := os.MkdirAll(path, 0o755); err != nil {
 			t.Fatalf("mkdir: %v", err)
 		}
-		exists, err := checkExistingConfig(path)
-		if err == nil {
-			t.Error("expected error when path is directory")
-		}
-		if exists {
-			t.Error("expected false when path is directory")
-		}
+		assertCheckExisting(t, path, false, true)
 	})
 }
 
