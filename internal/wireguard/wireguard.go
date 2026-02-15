@@ -17,6 +17,8 @@ import (
 const (
 	FamilyIPv4 = "IPv4"
 	FamilyIPv6 = "IPv6"
+
+	errSavePeerStoreFmt = "save peer store: %w"
 )
 
 var (
@@ -335,7 +337,7 @@ func (s *WireGuardService) EnsurePeer(peerID string, expiresAt *time.Time, addre
 		ExpiresAt:  expiresAt,
 	})
 	if err := s.savePersist(); err != nil {
-		return PeerInfo{}, fmt.Errorf("save peer store: %w", err)
+		return PeerInfo{}, fmt.Errorf(errSavePeerStoreFmt, err)
 	}
 
 	allowedIPsStr := make([]string, len(allowedIPs))
@@ -377,7 +379,7 @@ func (s *WireGuardService) DeletePeer(peerID string) error {
 
 	s.store.Delete(peerID)
 	if err := s.savePersist(); err != nil {
-		return fmt.Errorf("save peer store: %w", err)
+		return fmt.Errorf(errSavePeerStoreFmt, err)
 	}
 	return nil
 }
@@ -576,7 +578,7 @@ func (s *WireGuardService) rotatePeer(peerID string, record PeerRecord, expiresA
 		ExpiresAt:  effectiveExpiresAt,
 	})
 	if err := s.savePersist(); err != nil {
-		return PeerInfo{}, fmt.Errorf("save peer store: %w", err)
+		return PeerInfo{}, fmt.Errorf(errSavePeerStoreFmt, err)
 	}
 
 	allowedIPsStr := make([]string, len(record.AllowedIPs))

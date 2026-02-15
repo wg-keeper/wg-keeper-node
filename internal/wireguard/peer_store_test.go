@@ -12,10 +12,12 @@ import (
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 )
 
+const testPeerID = "peer-1"
+
 func TestStoredToRecordAllowedIPs(t *testing.T) {
 	key, _ := wgtypes.GenerateKey()
 	stored := peerRecordStored{
-		PeerID:     "peer-1",
+		PeerID:     testPeerID,
 		PublicKey:  key.String(),
 		AllowedIPs: []string{"10.0.0.3/32", "fd00::3/128"},
 		CreatedAt:  time.Now().UTC(),
@@ -24,7 +26,7 @@ func TestStoredToRecordAllowedIPs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("storedToRecord: %v", err)
 	}
-	if rec.PeerID != "peer-1" {
+	if rec.PeerID != testPeerID {
 		t.Fatalf("peer_id: got %q", rec.PeerID)
 	}
 	if len(rec.AllowedIPs) != 2 {
@@ -121,7 +123,7 @@ func TestStoredToRecordEmptyPeerID(t *testing.T) {
 func TestStoredToRecordEmptyAllowedIPs(t *testing.T) {
 	key, _ := wgtypes.GenerateKey()
 	stored := peerRecordStored{
-		PeerID:     "peer-1",
+		PeerID:     testPeerID,
 		PublicKey:  key.String(),
 		AllowedIPs: []string{},
 		CreatedAt:  time.Now().UTC(),
