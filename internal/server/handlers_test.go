@@ -203,6 +203,17 @@ func TestCreatePeerExpiresAtInPast(t *testing.T) {
 	assertJSONErrorCode(t, rec.Body.Bytes(), "invalid_expires_at")
 }
 
+func TestBodyLimitTooLarge(t *testing.T) {
+	router := newTestRouter()
+	router.Use(bodyLimitMiddleware(MaxRequestBodySize))
+	router.POST(pathPeers, apiKeyMiddleware(testAPIKey), createPeerHandler(mockWGService{}, false))
+
+	body := make([]byte, MaxRequestBodySize+1)
+	rec := performRequest(t, router, http.MethodPost, pathPeers, body, testAPIKey)
+	assertStatus(t, rec, http.StatusRequestEntityTooLarge)
+	assertJSONErrorCode(t, rec.Body.Bytes(), "body_too_large")
+}
+
 func TestDeletePeerInvalidID(t *testing.T) {
 	router := newTestRouter()
 	router.DELETE(pathPeersPeerID, apiKeyMiddleware(testAPIKey), deletePeerHandler(mockWGService{}, false))
@@ -305,9 +316,9 @@ func TestGetPeerSuccess(t *testing.T) {
 	router.GET(pathPeersPeerID, apiKeyMiddleware(testAPIKey), getPeerHandler(mockWGService{
 		getPeerFunc: func(peerID string) (*wireguard.PeerDetail, error) {
 			return &wireguard.PeerDetail{
-				PeerListItem:   wireguard.PeerListItem{PeerID: peerID, AllowedIPs: []string{testAllowedIP}, AddressFamilies: []string{"IPv4"}, PublicKey: "pk", Active: true, CreatedAt: "2025-01-01T00:00:00Z"},
-				ReceiveBytes:   1000,
-				TransmitBytes:  2000,
+				PeerListItem:  wireguard.PeerListItem{PeerID: peerID, AllowedIPs: []string{testAllowedIP}, AddressFamilies: []string{"IPv4"}, PublicKey: "pk", Active: true, CreatedAt: "2025-01-01T00:00:00Z"},
+				ReceiveBytes:  1000,
+				TransmitBytes: 2000,
 			}, nil
 		},
 	}, false))

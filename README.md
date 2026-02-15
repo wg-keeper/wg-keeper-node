@@ -22,6 +22,10 @@ and low operational overhead.
 
 - API key authentication on all protected endpoints.
 - Restrictive WireGuard config permissions and minimal host surface area.
+- **Rate limiting:** When `server.allowed_ips` is **not** set, the API applies per–client-IP rate limiting (20 requests/second, burst 30) to reduce brute-force and abuse. When `server.allowed_ips` is set, rate limiting is **not** applied so that trusted orchestrator IPs are not limited.
+- Request body size is limited (256 KB); larger bodies receive 413 Request Entity Too Large.
+- Security headers on all responses: `X-Content-Type-Options`, `X-Frame-Options`, `X-XSS-Protection`, `Referrer-Policy`; `Strict-Transport-Security` when using TLS.
+- Each response includes `X-Request-Id` (UUID v4) for correlation with logs and for integrating external monitoring (e.g. Prometheus, OpenTelemetry).
 
 ## Architecture
 
@@ -40,7 +44,7 @@ flowchart LR
 
 ## Limitations
 
-- **In-memory peer state:** The mapping of peer IDs to peers is stored only in memory. After a process restart, this state is lost. Existing peer IDs will no longer be found (e.g. DELETE returns 404); a new POST with the same peer ID creates a new peer (new keys, same or different AllowedIP depending on allocation). Orchestrators should treat a node restart as an event after which peers may need to be re-created or re-attached as required.
+- **In-memory peer state (default):** The mapping of peer IDs to peers is stored only in memory. After a process restart, this state is lost. Existing peer IDs will no longer be found (e.g. DELETE returns 404); a new POST with the same peer ID creates a new peer (new keys, same or different AllowedIP depending on allocation). Orchestrators should treat a node restart as an event after which peers may need to be re-created or re-attached as required. Optional persistence: the codebase provides `PeerStore.LoadFromFile` and `SaveToFile` for JSON-based peer state; the default deployment does not wire them at startup, so out of the box the node is in-memory only. You can integrate loading/saving at startup and on changes if you need persistence (e.g. custom wrapper or fork).
 
 ## Requirements
 
@@ -127,7 +131,7 @@ Any other first argument is treated as an unknown command and the process exits 
 
 ## API
 
-All protected endpoints require the `X-API-Key` header with the value from `auth.api_key`.
+All protected endpoints require the `X-API-Key` header with the value from `auth.api_key`. Every response includes an `X-Request-Id` header (UUID v4) for request correlation and monitoring.
 
 - `GET /health` — status check (public)
 - `GET /stats` — WireGuard statistics (protected)

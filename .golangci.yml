@@ -4,3 +4,10 @@ run:
 linters:
   enable:
     - gosec
+    - staticcheck
+    - ineffassign
+    - unconvert
+    - gofmt
+    - goimports
+    - misspell
+    - unparam
