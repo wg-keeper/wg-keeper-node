@@ -180,7 +180,7 @@ func initPersistStore(svc *WireGuardService) error {
 	if err := svc.reconcileStoreWithDevice(); err != nil {
 		return fmt.Errorf("reconcile peer store with device: %w", err)
 	}
-	if changed := svc.reconcileStoreWithSubnets(); changed {
+	if svc.reconcileStoreWithSubnets() {
 		if err := svc.store.SaveToFile(svc.persistPath); err != nil {
 			return fmt.Errorf("save peer store after reconcile: %w", err)
 		}
