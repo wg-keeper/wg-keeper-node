@@ -44,7 +44,7 @@ flowchart LR
 
 ## Limitations
 
-- **In-memory peer state (default):** The mapping of peer IDs to peers is stored only in memory. After a process restart, this state is lost. Existing peer IDs will no longer be found (e.g. DELETE returns 404); a new POST with the same peer ID creates a new peer (new keys, same or different AllowedIP depending on allocation). Orchestrators should treat a node restart as an event after which peers may need to be re-created or re-attached as required. Optional persistence: the codebase provides `PeerStore.LoadFromFile` and `SaveToFile` for JSON-based peer state; the default deployment does not wire them at startup, so out of the box the node is in-memory only. You can integrate loading/saving at startup and on changes if you need persistence (e.g. custom wrapper or fork).
+- **In-memory peer state (default):** If `wireguard.peer_store_file` is not set, the mapping of peer IDs to peers is stored only in memory. After a process restart, this state is lost. See [Peer store persistence](#peer-store-persistence) for optional file-based persistence.
 
 ## Requirements
 
@@ -79,7 +79,27 @@ Key settings:
 - `wireguard.subnet`: IPv4 CIDR subnet for peer allocation.
 - `wireguard.listen_port`: WireGuard UDP port.
 - `wireguard.server_ip` (optional): server IP inside subnet.
+- `wireguard.peer_store_file` (optional): path to a JSON file for persistent peer store. If set, peers are loaded from this file on startup and saved on every change. Omit or leave empty for in-memory only.
 - `wireguard.routing.wan_interface`: WAN interface for NAT rules.
+
+## Peer store persistence
+
+When `wireguard.peer_store_file` is set (e.g. `peers.json`), the node:
+
+- **On startup:** Loads peer records from the file (if the file does not exist, starts with an empty store). Then reconciles with the WireGuard device (removes from store any peer whose public key is no longer on the interface, e.g. after a host reboot) and with the current config subnets (removes from store and from the device any peer whose `allowed_ips` are not entirely within the current `wireguard.subnet` / `wireguard.subnet6`). If anything was removed, the file is rewritten.
+- **On every change:** After creating, rotating, or deleting a peer, the full store is written to the file (atomically: write to a temp file then rename).
+
+| Scenario | Behaviour |
+|----------|-----------|
+| File does not exist | Start with empty store; no error. |
+| File empty (0 bytes) or invalid JSON / invalid record / duplicate `peer_id` | Startup fails with a clear error. |
+| Process restarted, WireGuard interface unchanged | Load file; store matches device; normal operation. |
+| Host rebooted or interface recreated | Load file; reconcile removes from store any peer not on the device; file is updated. |
+| `wireguard.subnet` or `wireguard.subnet6` changed in config | On next startup, reconcile removes from store and from the device any peer whose `allowed_ips` are outside the new subnets. Back up the file before changing subnets if you need to inspect or migrate data. |
+
+**File format:** JSON array of objects. Each object: `peer_id` (string), `public_key` (base64), `allowed_ips` (array of CIDR strings, e.g. `["10.0.0.2/32", "fd00::2/128"]`), `created_at` (RFC3339), `expires_at` (RFC3339 or omit for permanent). Private keys are never stored.
+
+**Recommendations:** Create the directory for the file with restrictive permissions (e.g. only the user running the process). The process writes the file with mode `0600`. For critical deployments, back up the file periodically. Do not change `wireguard.subnet` / `wireguard.subnet6` without understanding that peers whose addresses fall outside the new subnets will be removed on the next startup.
 
 ## WireGuard initialization
 

@@ -9,6 +9,8 @@ services:
       - ./config.yaml:/app/config.yaml:ro
       - ./wireguard:/etc/wireguard
       - ./certs:/app/certs:ro
+      # Optional: persist peer store (set wireguard.peer_store_file: "/app/peers/peers.json" in config)
+      # - ./peers:/app/peers
     ports:
       - "51820:51820/udp"
       - "51821:51821"

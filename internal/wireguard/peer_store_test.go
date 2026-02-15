@@ -2,6 +2,7 @@ package wireguard
 
 import (
 	"net"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -76,4 +77,41 @@ func mustParseCIDRs(t *testing.T, cidrs ...string) []net.IPNet {
 		out = append(out, *n)
 	}
 	return out
+}
+
+func TestLoadFromFileIfExistsMissingFile(t *testing.T) {
+	store := NewPeerStore()
+	path := filepath.Join(t.TempDir(), "nonexistent.json")
+	if err := store.LoadFromFileIfExists(path); err != nil {
+		t.Fatalf("LoadFromFileIfExists(missing): expected nil, got %v", err)
+	}
+	if len(store.List()) != 0 {
+		t.Fatalf("expected empty store after missing file, got %d", len(store.List()))
+	}
+}
+
+func TestLoadFromFileIfExistsEmptyFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "peers.json")
+	if err := os.WriteFile(path, nil, 0o600); err != nil {
+		t.Fatalf("write empty file: %v", err)
+	}
+	store := NewPeerStore()
+	if store.LoadFromFileIfExists(path) == nil {
+		t.Fatal("LoadFromFileIfExists(empty file): expected error, got nil")
+	}
+}
+
+func TestStoredToRecordEmptyPeerID(t *testing.T) {
+	key, _ := wgtypes.GenerateKey()
+	stored := peerRecordStored{
+		PeerID:     "  ",
+		PublicKey:  key.String(),
+		AllowedIPs: []string{"10.0.0.1/32"},
+		CreatedAt:  time.Now().UTC(),
+	}
+	_, err := storedToRecord(stored)
+	if err == nil {
+		t.Fatal("storedToRecord(empty peer_id): expected error, got nil")
+	}
 }
