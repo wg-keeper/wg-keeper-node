@@ -107,9 +107,10 @@ func TestAllocateIPSkipsUsed(t *testing.T) {
 	}
 	svc := newTestServiceWithSubnet29(t, device)
 	svc.store.Set(PeerRecord{
-		PeerID:     peerIDTest,
-		PublicKey:  wgtypes.Key{},
-		AllowedIPs: []net.IPNet{ipNet(t, ipPeerTest)},
+		PeerID:       peerIDTest,
+		PublicKey:    wgtypes.Key{},
+		PresharedKey: wgtypes.Key{},
+		AllowedIPs:   []net.IPNet{ipNet(t, ipPeerTest)},
 	})
 
 	ips, err := svc.allocateIPs([]string{FamilyIPv4})
@@ -133,9 +134,10 @@ func TestAllocateIPNoAvailable(t *testing.T) {
 		store:      NewPeerStore(),
 	}
 	svc.store.Set(PeerRecord{
-		PeerID:     peerIDTest,
-		PublicKey:  wgtypes.Key{},
-		AllowedIPs: []net.IPNet{ipNet(t, ipPeerTest)},
+		PeerID:       peerIDTest,
+		PublicKey:    wgtypes.Key{},
+		PresharedKey: wgtypes.Key{},
+		AllowedIPs:   []net.IPNet{ipNet(t, ipPeerTest)},
 	})
 
 	_, err := svc.allocateIPs([]string{FamilyIPv4})
@@ -164,9 +166,10 @@ func TestStatsActivePeers(t *testing.T) {
 		store:      NewPeerStore(),
 	}
 	svc.store.Set(PeerRecord{
-		PeerID:     peerIDTest,
-		PublicKey:  wgtypes.Key{},
-		AllowedIPs: []net.IPNet{ipNet(t, ipPeerTest)},
+		PeerID:       peerIDTest,
+		PublicKey:    wgtypes.Key{},
+		PresharedKey: wgtypes.Key{},
+		AllowedIPs:   []net.IPNet{ipNet(t, ipPeerTest)},
 	})
 
 	stats, err := svc.Stats()
@@ -215,11 +218,12 @@ func TestRunExpiredPeersCleanupRemovesExpiredPeer(t *testing.T) {
 	expiredAt := time.Now().UTC().Add(-time.Hour)
 	key, _ := wgtypes.GenerateKey()
 	svc.store.Set(PeerRecord{
-		PeerID:     "expired-peer",
-		PublicKey:  key,
-		AllowedIPs: []net.IPNet{ipNet(t, ipPeerTest)},
-		CreatedAt:  time.Now().UTC(),
-		ExpiresAt:  &expiredAt,
+		PeerID:       "expired-peer",
+		PublicKey:    key,
+		PresharedKey: wgtypes.Key{},
+		AllowedIPs:   []net.IPNet{ipNet(t, ipPeerTest)},
+		CreatedAt:    time.Now().UTC(),
+		ExpiresAt:    &expiredAt,
 	})
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -240,11 +244,12 @@ func TestRunExpiredPeersCleanupKeepsPermanentPeer(t *testing.T) {
 	svc := newTestServiceWithSubnet(t, nil)
 	key, _ := wgtypes.GenerateKey()
 	svc.store.Set(PeerRecord{
-		PeerID:     "permanent-peer",
-		PublicKey:  key,
-		AllowedIPs: []net.IPNet{ipNet(t, ipPeerTest)},
-		CreatedAt:  time.Now().UTC(),
-		ExpiresAt:  nil, // permanent
+		PeerID:       "permanent-peer",
+		PublicKey:    key,
+		PresharedKey: wgtypes.Key{},
+		AllowedIPs:   []net.IPNet{ipNet(t, ipPeerTest)},
+		CreatedAt:    time.Now().UTC(),
+		ExpiresAt:    nil, // permanent
 	})
 
 	svc.runCleanupSafe()
@@ -264,11 +269,12 @@ func TestCleanupExpiredPeersDeletePeerError(t *testing.T) {
 	expiredAt := time.Now().UTC().Add(-time.Hour)
 	key, _ := wgtypes.GenerateKey()
 	svc.store.Set(PeerRecord{
-		PeerID:     "expired-fail",
-		PublicKey:  key,
-		AllowedIPs: []net.IPNet{ipNet(t, ipPeerTest)},
-		CreatedAt:  time.Now().UTC(),
-		ExpiresAt:  &expiredAt,
+		PeerID:       "expired-fail",
+		PublicKey:    key,
+		PresharedKey: wgtypes.Key{},
+		AllowedIPs:   []net.IPNet{ipNet(t, ipPeerTest)},
+		CreatedAt:    time.Now().UTC(),
+		ExpiresAt:    &expiredAt,
 	})
 	svc.runCleanupSafe()
 	list, err := svc.ListPeers()
@@ -296,10 +302,11 @@ func TestGetPeerSuccess(t *testing.T) {
 		store:      NewPeerStore(),
 	}
 	svc.store.Set(PeerRecord{
-		PeerID:     peerIDTest,
-		PublicKey:  key,
-		AllowedIPs: []net.IPNet{ipNet(t, ipPeerTest)},
-		CreatedAt:  time.Now().UTC(),
+		PeerID:       peerIDTest,
+		PublicKey:    key,
+		PresharedKey: wgtypes.Key{},
+		AllowedIPs:   []net.IPNet{ipNet(t, ipPeerTest)},
+		CreatedAt:    time.Now().UTC(),
 	})
 
 	detail, err := svc.GetPeer(peerIDTest)
@@ -336,7 +343,7 @@ func TestGetPeerDeviceError(t *testing.T) {
 		serverIP4:  net.ParseIP(ipServerTest),
 		store:      NewPeerStore(),
 	}
-	svc.store.Set(PeerRecord{PeerID: peerIDTest, PublicKey: key, AllowedIPs: []net.IPNet{ipNet(t, ipPeerTest)}})
+	svc.store.Set(PeerRecord{PeerID: peerIDTest, PublicKey: key, PresharedKey: wgtypes.Key{}, AllowedIPs: []net.IPNet{ipNet(t, ipPeerTest)}})
 	_, err := svc.GetPeer(peerIDTest)
 	if err == nil {
 		t.Fatal("expected error when device fails")
@@ -371,18 +378,18 @@ func TestRecordAllowedIPsInSubnets(t *testing.T) {
 		store:     NewPeerStore(),
 	}
 
-	recIn := PeerRecord{AllowedIPs: []net.IPNet{ipNet(t, "10.0.0.2"), ipNet6(t, "fd00::2")}}
+	recIn := PeerRecord{PresharedKey: wgtypes.Key{}, AllowedIPs: []net.IPNet{ipNet(t, "10.0.0.2"), ipNet6(t, "fd00::2")}}
 	if !svc.recordAllowedIPsInSubnets(recIn) {
 		t.Error("expected true for IPs in both subnets")
 	}
 
-	recOut := PeerRecord{AllowedIPs: []net.IPNet{ipNet(t, "192.168.1.1")}}
+	recOut := PeerRecord{PresharedKey: wgtypes.Key{}, AllowedIPs: []net.IPNet{ipNet(t, "192.168.1.1")}}
 	if svc.recordAllowedIPsInSubnets(recOut) {
 		t.Error("expected false for IP outside subnets")
 	}
 
 	svc4Only := &WireGuardService{subnet4: subnet4, serverIP4: net.ParseIP(ipServerTest), store: NewPeerStore()}
-	rec4 := PeerRecord{AllowedIPs: []net.IPNet{ipNet(t, "10.0.0.3")}}
+	rec4 := PeerRecord{PresharedKey: wgtypes.Key{}, AllowedIPs: []net.IPNet{ipNet(t, "10.0.0.3")}}
 	if !svc4Only.recordAllowedIPsInSubnets(rec4) {
 		t.Error("expected true for IPv4 in subnet")
 	}
@@ -452,10 +459,11 @@ func TestEnsurePeerDuplicateRotates(t *testing.T) {
 		store:      NewPeerStore(),
 	}
 	svc.store.Set(PeerRecord{
-		PeerID:     peerIDTest,
-		PublicKey:  key,
-		AllowedIPs: []net.IPNet{ipNet(t, ipPeerTest)},
-		CreatedAt:  time.Now().UTC(),
+		PeerID:       peerIDTest,
+		PublicKey:    key,
+		PresharedKey: wgtypes.Key{},
+		AllowedIPs:   []net.IPNet{ipNet(t, ipPeerTest)},
+		CreatedAt:    time.Now().UTC(),
 	})
 	info, err := svc.EnsurePeer(peerIDTest, nil, nil)
 	if err != nil {

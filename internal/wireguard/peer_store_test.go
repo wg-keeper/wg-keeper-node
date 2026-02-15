@@ -16,11 +16,13 @@ const testPeerID = "peer-1"
 
 func TestStoredToRecordAllowedIPs(t *testing.T) {
 	key, _ := wgtypes.GenerateKey()
+	psk, _ := wgtypes.GenerateKey()
 	stored := peerRecordStored{
-		PeerID:     testPeerID,
-		PublicKey:  key.String(),
-		AllowedIPs: []string{"10.0.0.3/32", "fd00::3/128"},
-		CreatedAt:  time.Now().UTC(),
+		PeerID:       testPeerID,
+		PublicKey:    key.String(),
+		PresharedKey: psk.String(),
+		AllowedIPs:   []string{"10.0.0.3/32", "fd00::3/128"},
+		CreatedAt:    time.Now().UTC(),
 	}
 	rec, err := storedToRecord(stored)
 	if err != nil {
@@ -39,13 +41,15 @@ func TestStoredToRecordAllowedIPs(t *testing.T) {
 
 func TestSaveToFileAndLoadFromFileRoundtrip(t *testing.T) {
 	key, _ := wgtypes.GenerateKey()
+	psk, _ := wgtypes.GenerateKey()
 	store := NewPeerStore()
 	store.Set(PeerRecord{
-		PeerID:     "roundtrip",
-		PublicKey:  key,
-		AllowedIPs: mustParseCIDRs(t, "10.0.0.1/32", "fd00::1/128"),
-		CreatedAt:  time.Now().UTC(),
-		ExpiresAt:  nil,
+		PeerID:       "roundtrip",
+		PublicKey:    key,
+		PresharedKey: psk,
+		AllowedIPs:   mustParseCIDRs(t, "10.0.0.1/32", "fd00::1/128"),
+		CreatedAt:    time.Now().UTC(),
+		ExpiresAt:    nil,
 	})
 
 	dir := t.TempDir()
@@ -67,6 +71,38 @@ func TestSaveToFileAndLoadFromFileRoundtrip(t *testing.T) {
 	}
 	if len(rec.AllowedIPs) != 2 {
 		t.Fatalf("expected 2 allowed_ips, got %d", len(rec.AllowedIPs))
+	}
+}
+
+func TestSaveToFileAndLoadFromFileRoundtripWithPresharedKey(t *testing.T) {
+	key, _ := wgtypes.GenerateKey()
+	psk, _ := wgtypes.GenerateKey()
+	store := NewPeerStore()
+	store.Set(PeerRecord{
+		PeerID:       "roundtrip-psk",
+		PublicKey:    key,
+		PresharedKey: psk,
+		AllowedIPs:   mustParseCIDRs(t, "10.0.0.2/32"),
+		CreatedAt:    time.Now().UTC(),
+		ExpiresAt:    nil,
+	})
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "peers.json")
+	if err := store.SaveToFile(path); err != nil {
+		t.Fatalf("SaveToFile: %v", err)
+	}
+
+	store2 := NewPeerStore()
+	if err := store2.LoadFromFile(path); err != nil {
+		t.Fatalf("LoadFromFile: %v", err)
+	}
+	rec, ok := store2.Get("roundtrip-psk")
+	if !ok {
+		t.Fatalf("expected record after roundtrip")
+	}
+	if rec.PresharedKey != psk {
+		t.Fatalf("preshared_key not preserved after roundtrip")
 	}
 }
 
@@ -108,11 +144,13 @@ func TestLoadFromFileIfExistsEmptyFile(t *testing.T) {
 
 func TestStoredToRecordEmptyPeerID(t *testing.T) {
 	key, _ := wgtypes.GenerateKey()
+	psk, _ := wgtypes.GenerateKey()
 	stored := peerRecordStored{
-		PeerID:     "  ",
-		PublicKey:  key.String(),
-		AllowedIPs: []string{"10.0.0.1/32"},
-		CreatedAt:  time.Now().UTC(),
+		PeerID:       "  ",
+		PublicKey:    key.String(),
+		PresharedKey: psk.String(),
+		AllowedIPs:   []string{"10.0.0.1/32"},
+		CreatedAt:    time.Now().UTC(),
 	}
 	_, err := storedToRecord(stored)
 	if err == nil {
@@ -122,11 +160,13 @@ func TestStoredToRecordEmptyPeerID(t *testing.T) {
 
 func TestStoredToRecordEmptyAllowedIPs(t *testing.T) {
 	key, _ := wgtypes.GenerateKey()
+	psk, _ := wgtypes.GenerateKey()
 	stored := peerRecordStored{
-		PeerID:     testPeerID,
-		PublicKey:  key.String(),
-		AllowedIPs: []string{},
-		CreatedAt:  time.Now().UTC(),
+		PeerID:       testPeerID,
+		PublicKey:    key.String(),
+		PresharedKey: psk.String(),
+		AllowedIPs:   []string{},
+		CreatedAt:    time.Now().UTC(),
 	}
 	_, err := storedToRecord(stored)
 	if err == nil {
@@ -145,13 +185,33 @@ func TestLoadFromDataNullRoot(t *testing.T) {
 	}
 }
 
+func TestStoredToRecordEmptyPresharedKey(t *testing.T) {
+	key, _ := wgtypes.GenerateKey()
+	stored := peerRecordStored{
+		PeerID:       testPeerID,
+		PublicKey:    key.String(),
+		PresharedKey: "",
+		AllowedIPs:   []string{"10.0.0.1/32"},
+		CreatedAt:    time.Now().UTC(),
+	}
+	_, err := storedToRecord(stored)
+	if err == nil {
+		t.Fatal("storedToRecord(empty preshared_key): expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "preshared_key") {
+		t.Errorf("expected error about preshared_key, got: %v", err)
+	}
+}
+
 func TestLoadFromDataDuplicatePublicKey(t *testing.T) {
 	key, _ := wgtypes.GenerateKey()
+	psk, _ := wgtypes.GenerateKey()
 	keyStr := key.String()
+	pskStr := psk.String()
 	data := []byte(fmt.Sprintf(`[
-		{"peer_id":"a","public_key":%q,"allowed_ips":["10.0.0.1/32"],"created_at":"2024-01-01T00:00:00Z"},
-		{"peer_id":"b","public_key":%q,"allowed_ips":["10.0.0.2/32"],"created_at":"2024-01-01T00:00:00Z"}
-	]`, keyStr, keyStr))
+		{"peer_id":"a","public_key":%q,"preshared_key":%q,"allowed_ips":["10.0.0.1/32"],"created_at":"2024-01-01T00:00:00Z"},
+		{"peer_id":"b","public_key":%q,"preshared_key":%q,"allowed_ips":["10.0.0.2/32"],"created_at":"2024-01-01T00:00:00Z"}
+	]`, keyStr, pskStr, keyStr, pskStr))
 	store := NewPeerStore()
 	err := store.loadFromData(data)
 	if err == nil {
