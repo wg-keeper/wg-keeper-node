@@ -86,15 +86,15 @@ Key settings:
 
 When `wireguard.peer_store_file` is set (e.g. `peers.json`), the node:
 
-- **On startup:** Loads peer records from the file (if the file does not exist, starts with an empty store). Then reconciles with the WireGuard device (removes from store any peer whose public key is no longer on the interface, e.g. after a host reboot) and with the current config subnets (removes from store and from the device any peer whose `allowed_ips` are not entirely within the current `wireguard.subnet` / `wireguard.subnet6`). If anything was removed, the file is rewritten.
+- **On startup:** Loads peer records from the file (if the file does not exist, starts with an empty store). Then restores the WireGuard device from the store (adds to the interface any peer that is in the store but not on the device, e.g. after a host reboot). Then reconciles with the current config subnets (removes from store and from the device any peer whose `allowed_ips` are not entirely within the current `wireguard.subnet` / `wireguard.subnet6`). If the subnet reconcile removed anything, the file is rewritten.
 - **On every change:** After creating, rotating, or deleting a peer, the full store is written to the file (atomically: write to a temp file then rename).
 
 | Scenario | Behaviour |
 |----------|-----------|
 | File does not exist | Start with empty store; no error. |
 | File empty (0 bytes) or invalid JSON / invalid record / duplicate `peer_id` | Startup fails with a clear error. |
-| Process restarted, WireGuard interface unchanged | Load file; store matches device; normal operation. |
-| Host rebooted or interface recreated | Load file; reconcile removes from store any peer not on the device; file is updated. |
+| Process restarted, WireGuard interface unchanged | Load file; device already matches store; normal operation. |
+| Host rebooted or interface recreated | Load file; restore device from store (add all store peers to the interface); file unchanged. |
 | `wireguard.subnet` or `wireguard.subnet6` changed in config | On next startup, reconcile removes from store and from the device any peer whose `allowed_ips` are outside the new subnets. Back up the file before changing subnets if you need to inspect or migrate data. |
 
 **File format:** JSON array of objects. Each object: `peer_id` (string), `public_key` (base64), `allowed_ips` (array of CIDR strings, e.g. `["10.0.0.2/32", "fd00::2/128"]`), `created_at` (RFC3339), `expires_at` (RFC3339 or omit for permanent). Private keys are never stored.

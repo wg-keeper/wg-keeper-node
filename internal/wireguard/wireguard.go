@@ -190,8 +190,10 @@ func initPersistStore(svc *WireGuardService) error {
 	return nil
 }
 
-// reconcileStoreWithDevice removes from store any record whose public key is not present on the device.
-// Returns (true, nil) if any record was removed, (false, nil) if not, or (false, err) if the device cannot be read.
+// reconcileStoreWithDevice restores the device from the store: adds to the device any peer
+// that is in the store but not present on the device (e.g. after a reboot).
+// Store is the source of truth; we do not remove from store when a peer is missing on the device.
+// Returns (false, nil) because the store is never modified here, or (false, err) if the device cannot be read or configured.
 func (s *WireGuardService) reconcileStoreWithDevice() (bool, error) {
 	device, err := s.client.Device(s.deviceName)
 	if err != nil {
@@ -201,14 +203,24 @@ func (s *WireGuardService) reconcileStoreWithDevice() (bool, error) {
 	for i := range device.Peers {
 		onDevice[device.Peers[i].PublicKey] = true
 	}
-	var changed bool
+	var toAdd []wgtypes.PeerConfig
 	for _, rec := range s.store.List() {
 		if !onDevice[rec.PublicKey] {
-			s.store.Delete(rec.PeerID)
-			changed = true
+			toAdd = append(toAdd, wgtypes.PeerConfig{
+				PublicKey:                   rec.PublicKey,
+				AllowedIPs:                  rec.AllowedIPs,
+				ReplaceAllowedIPs:           true,
+				PersistentKeepaliveInterval: keepaliveInterval(),
+			})
 		}
 	}
-	return changed, nil
+	if len(toAdd) == 0 {
+		return false, nil
+	}
+	if err := s.client.ConfigureDevice(s.deviceName, wgtypes.Config{Peers: toAdd}); err != nil {
+		return false, err
+	}
+	return false, nil
 }
 
 // reconcileStoreWithSubnets removes from store and from the device any record whose allowed_ips
