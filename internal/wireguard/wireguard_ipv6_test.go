@@ -5,7 +5,11 @@ import (
 	"testing"
 )
 
-const subnet6TestCIDR = "fd00::/120"
+const (
+	subnet6TestCIDR   = "fd00::/120"
+	subnet6TestCIDR64 = "fd00::/64"
+	ipv6TestAddr1     = "fd00::1"
+)
 
 func TestIPv6Range(t *testing.T) {
 	_, subnet, _ := net.ParseCIDR(subnet6TestCIDR)
@@ -38,7 +42,7 @@ func TestIPv6RangeTooSmall(t *testing.T) {
 }
 
 func TestNextIPv6(t *testing.T) {
-	ip := net.ParseIP("fd00::1")
+	ip := net.ParseIP(ipv6TestAddr1)
 	next := nextIPv6(ip)
 	if next == nil {
 		t.Fatal("next should be non-nil")
@@ -58,7 +62,7 @@ func TestNextIPv6Rollover(t *testing.T) {
 
 func TestIPAfterIPv6(t *testing.T) {
 	a := net.ParseIP("fd00::2")
-	b := net.ParseIP("fd00::1")
+	b := net.ParseIP(ipv6TestAddr1)
 	if !ipAfterIPv6(a, b) {
 		t.Error("a should be after b")
 	}
@@ -71,12 +75,12 @@ func TestIPAfterIPv6(t *testing.T) {
 }
 
 func TestResolveServerIP6(t *testing.T) {
-	_, subnet, _ := net.ParseCIDR("fd00::/64")
-	ip, err := resolveServerIP6(subnet, "fd00::1")
+	_, subnet, _ := net.ParseCIDR(subnet6TestCIDR64)
+	ip, err := resolveServerIP6(subnet, ipv6TestAddr1)
 	if err != nil {
 		t.Fatalf("resolveServerIP6: %v", err)
 	}
-	if ip.String() != "fd00::1" {
+	if ip.String() != ipv6TestAddr1 {
 		t.Errorf("got %s", ip.String())
 	}
 
@@ -97,7 +101,7 @@ func TestResolveServerIP6(t *testing.T) {
 }
 
 func TestResolveServerIP6EmptyUsesFirst(t *testing.T) {
-	_, subnet, _ := net.ParseCIDR("fd00::/120")
+	_, subnet, _ := net.ParseCIDR(subnet6TestCIDR)
 	ip, err := resolveServerIP6(subnet, "")
 	if err != nil {
 		t.Fatalf("resolveServerIP6: %v", err)
@@ -108,14 +112,14 @@ func TestResolveServerIP6EmptyUsesFirst(t *testing.T) {
 }
 
 func TestAllocateOneIPv6(t *testing.T) {
-	_, subnet, _ := net.ParseCIDR("fd00::/120")
+	_, subnet, _ := net.ParseCIDR(subnet6TestCIDR)
 	used := map[string]struct{}{}
 	ipNet, err := allocateOneIPv6(subnet, used)
 	if err != nil {
 		t.Fatalf("allocateOneIPv6: %v", err)
 	}
-	if ipNet.IP.String() != "fd00::1" {
-		t.Errorf("expected fd00::1, got %s", ipNet.IP.String())
+	if ipNet.IP.String() != ipv6TestAddr1 {
+		t.Errorf("expected %s, got %s", ipv6TestAddr1, ipNet.IP.String())
 	}
 	if _, ok := used[ipNet.IP.String()]; !ok {
 		t.Error("used should contain allocated IP")
@@ -123,7 +127,7 @@ func TestAllocateOneIPv6(t *testing.T) {
 }
 
 func TestPossiblePeerCountIPv6(t *testing.T) {
-	_, subnet, _ := net.ParseCIDR("fd00::/120")
+	_, subnet, _ := net.ParseCIDR(subnet6TestCIDR)
 	n, err := possiblePeerCountIPv6(subnet, nil)
 	if err != nil {
 		t.Fatalf("possiblePeerCountIPv6: %v", err)

@@ -8,9 +8,11 @@ import (
 	"github.com/wg-keeper/wg-keeper-node/internal/wireguard"
 )
 
-func TestNewRouter_Health(t *testing.T) {
+const routerTestAPIKey = "api-key"
+
+func TestNewRouterHealth(t *testing.T) {
 	svc := wireguard.NewTestService()
-	router := NewRouter("api-key", nil, svc, false)
+	router := NewRouter(routerTestAPIKey, nil, svc, false)
 	req := httptest.NewRequest(http.MethodGet, "/health", nil)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
@@ -19,11 +21,11 @@ func TestNewRouter_Health(t *testing.T) {
 	}
 }
 
-func TestNewRouter_StatsWithAPIKey(t *testing.T) {
+func TestNewRouterStatsWithAPIKey(t *testing.T) {
 	svc := wireguard.NewTestService()
-	router := NewRouter("api-key", nil, svc, false)
+	router := NewRouter(routerTestAPIKey, nil, svc, false)
 	req := httptest.NewRequest(http.MethodGet, "/stats", nil)
-	req.Header.Set("X-API-Key", "api-key")
+	req.Header.Set("X-API-Key", routerTestAPIKey)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
@@ -31,9 +33,9 @@ func TestNewRouter_StatsWithAPIKey(t *testing.T) {
 	}
 }
 
-func TestNewRouter_StatsWithoutAPIKey(t *testing.T) {
+func TestNewRouterStatsWithoutAPIKey(t *testing.T) {
 	svc := wireguard.NewTestService()
-	router := NewRouter("api-key", nil, svc, false)
+	router := NewRouter(routerTestAPIKey, nil, svc, false)
 	req := httptest.NewRequest(http.MethodGet, "/stats", nil)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)

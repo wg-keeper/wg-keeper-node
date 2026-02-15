@@ -86,7 +86,7 @@ func TestAddressLineFromSubnet4(t *testing.T) {
 	t.Run("valid", func(t *testing.T) {
 		addr, err := addressLineFromSubnet4("10.0.0.0/24", "10.0.0.1")
 		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+			t.Fatalf(msgUnexpectedError, err)
 		}
 		if addr != "10.0.0.1/24" {
 			t.Errorf("got %q", addr)
@@ -112,7 +112,7 @@ func TestAddressLineFromSubnet6(t *testing.T) {
 	t.Run("valid", func(t *testing.T) {
 		addr, err := addressLineFromSubnet6("fd00::/64", "fd00::1")
 		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+			t.Fatalf(msgUnexpectedError, err)
 		}
 		if !strings.HasPrefix(addr, "fd00::") || !strings.HasSuffix(addr, "/64") {
 			t.Errorf("got %q", addr)
@@ -131,7 +131,7 @@ func TestBuildAddressLines(t *testing.T) {
 	t.Run("empty_config", func(t *testing.T) {
 		lines, err := buildAddressLines(config.Config{})
 		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+			t.Fatalf(msgUnexpectedError, err)
 		}
 		if len(lines) != 0 {
 			t.Errorf("expected no lines, got %v", lines)
@@ -141,7 +141,7 @@ func TestBuildAddressLines(t *testing.T) {
 	t.Run("subnet4_only", func(t *testing.T) {
 		lines, err := buildAddressLines(config.Config{WGSubnet: "10.0.0.0/24", WGServerIP: "10.0.0.1"})
 		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+			t.Fatalf(msgUnexpectedError, err)
 		}
 		if len(lines) != 1 || !strings.HasPrefix(lines[0], "10.0.0.1") {
 			t.Errorf("expected one IPv4 line, got %v", lines)
@@ -156,7 +156,7 @@ func TestCheckExistingConfig(t *testing.T) {
 		path := filepath.Join(dir, "nonexistent")
 		exists, err := checkExistingConfig(path)
 		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+			t.Fatalf(msgUnexpectedError, err)
 		}
 		if exists {
 			t.Error("expected false for missing file")
@@ -170,7 +170,7 @@ func TestCheckExistingConfig(t *testing.T) {
 		}
 		exists, err := checkExistingConfig(path)
 		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+			t.Fatalf(msgUnexpectedError, err)
 		}
 		if !exists {
 			t.Error("expected true for existing file")

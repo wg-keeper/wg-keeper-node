@@ -9,24 +9,37 @@ import (
 	"github.com/wg-keeper/wg-keeper-node/internal/config"
 )
 
+const (
+	testSubnet4     = "10.0.0.0/24"
+	testSubnet6     = "fd00::/64"
+	testBinName     = "wg-keeper-node"
+	testWGInterface = "wg0"
+	testWGServerIP  = "10.0.0.1"
+	testWGConfBody  = "[Interface]\nPrivateKey = x\n"
+	testErrGotFmt   = "got %q"
+	testErrGotMsg   = "got: %s"
+	testDirWG       = "wireguard"
+	testWGConfFile  = "wg0.conf"
+)
+
 func TestFormatSubnetsLog(t *testing.T) {
-	if got := formatSubnetsLog(config.Config{WGSubnet: "10.0.0.0/24"}); got != "10.0.0.0/24" {
-		t.Errorf("got %q", got)
+	if got := formatSubnetsLog(config.Config{WGSubnet: testSubnet4}); got != testSubnet4 {
+		t.Errorf(testErrGotFmt, got)
 	}
-	if got := formatSubnetsLog(config.Config{WGSubnet6: "fd00::/64"}); got != "fd00::/64" {
-		t.Errorf("got %q", got)
+	if got := formatSubnetsLog(config.Config{WGSubnet6: testSubnet6}); got != testSubnet6 {
+		t.Errorf(testErrGotFmt, got)
 	}
-	if got := formatSubnetsLog(config.Config{WGSubnet: "10.0.0.0/24", WGSubnet6: "fd00::/64"}); got != "10.0.0.0/24,fd00::/64" {
-		t.Errorf("got %q", got)
+	if got := formatSubnetsLog(config.Config{WGSubnet: testSubnet4, WGSubnet6: testSubnet6}); got != testSubnet4+","+testSubnet6 {
+		t.Errorf(testErrGotFmt, got)
 	}
 }
 
 func TestProtocolFromConfig(t *testing.T) {
 	if got := protocolFromConfig(config.Config{}); got != "http" {
-		t.Errorf("got %q", got)
+		t.Errorf(testErrGotFmt, got)
 	}
 	if got := protocolFromConfig(config.Config{TLSCertFile: "a", TLSKeyFile: "b"}); got != "https" {
-		t.Errorf("got %q", got)
+		t.Errorf(testErrGotFmt, got)
 	}
 }
 
@@ -61,7 +74,7 @@ func TestIsDebugEnabled(t *testing.T) {
 
 func TestHandleInitNoArgs(t *testing.T) {
 	cfg := config.Config{}
-	handled, err := handleInit(cfg, []string{"wg-keeper-node"})
+	handled, err := handleInit(cfg, []string{testBinName})
 	if err != nil {
 		t.Fatalf("handleInit: unexpected error: %v", err)
 	}
@@ -72,7 +85,7 @@ func TestHandleInitNoArgs(t *testing.T) {
 
 func TestHandleInitUnknownCommand(t *testing.T) {
 	cfg := config.Config{}
-	handled, err := handleInit(cfg, []string{"wg-keeper-node", "foo"})
+	handled, err := handleInit(cfg, []string{testBinName, "foo"})
 	if !handled {
 		t.Fatal("handleInit: expected handled (exit with error), got not handled")
 	}
@@ -81,22 +94,23 @@ func TestHandleInitUnknownCommand(t *testing.T) {
 	}
 	msg := err.Error()
 	if !strings.Contains(msg, "unknown command") {
-		t.Errorf("handleInit: error should mention unknown command, got: %s", msg)
+		t.Errorf("handleInit: error should mention unknown command, "+testErrGotMsg, msg)
 	}
 	if !strings.Contains(msg, "foo") {
-		t.Errorf("handleInit: error should mention command name, got: %s", msg)
+		t.Errorf("handleInit: error should mention command name, "+testErrGotMsg, msg)
 	}
 	if !strings.Contains(msg, "init") {
-		t.Errorf("handleInit: error should hint at valid usage (init), got: %s", msg)
+		t.Errorf("handleInit: error should hint at valid usage (init), "+testErrGotMsg, msg)
 	}
 }
 
 func TestHandleInitInit(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.MkdirAll(dir+"/wireguard", 0o755); err != nil {
+	wgDir := dir + "/" + testDirWG
+	if err := os.MkdirAll(wgDir, 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
-	if err := os.WriteFile(dir+"/wireguard/wg0.conf", []byte("[Interface]\nPrivateKey = x\n"), 0o600); err != nil {
+	if err := os.WriteFile(wgDir+"/"+testWGConfFile, []byte(testWGConfBody), 0o600); err != nil {
 		t.Fatalf("write: %v", err)
 	}
 	cwd, err := os.Getwd()
@@ -109,12 +123,12 @@ func TestHandleInitInit(t *testing.T) {
 	defer func() { _ = os.Chdir(cwd) }()
 
 	cfg := config.Config{
-		WGInterface:  "wg0",
-		WGSubnet:     "10.0.0.0/24",
-		WGServerIP:   "10.0.0.1",
+		WGInterface:  testWGInterface,
+		WGSubnet:     testSubnet4,
+		WGServerIP:   testWGServerIP,
 		WGListenPort: 51820,
 	}
-	handled, err := handleInit(cfg, []string{"wg-keeper-node", "init"})
+	handled, err := handleInit(cfg, []string{testBinName, "init"})
 	if err != nil {
 		t.Fatalf("handleInit init: %v", err)
 	}
@@ -125,10 +139,11 @@ func TestHandleInitInit(t *testing.T) {
 
 func TestHandleInitInitPrintPath(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.MkdirAll(dir+"/wireguard", 0o755); err != nil {
+	wgDir := dir + "/" + testDirWG
+	if err := os.MkdirAll(wgDir, 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
-	if err := os.WriteFile(dir+"/wireguard/wg0.conf", []byte("[Interface]\nPrivateKey = x\n"), 0o600); err != nil {
+	if err := os.WriteFile(wgDir+"/"+testWGConfFile, []byte(testWGConfBody), 0o600); err != nil {
 		t.Fatalf("write: %v", err)
 	}
 	cwd, err := os.Getwd()
@@ -141,12 +156,12 @@ func TestHandleInitInitPrintPath(t *testing.T) {
 	defer func() { _ = os.Chdir(cwd) }()
 
 	cfg := config.Config{
-		WGInterface:  "wg0",
-		WGSubnet:     "10.0.0.0/24",
-		WGServerIP:   "10.0.0.1",
+		WGInterface:  testWGInterface,
+		WGSubnet:     testSubnet4,
+		WGServerIP:   testWGServerIP,
 		WGListenPort: 51820,
 	}
-	handled, err := handleInit(cfg, []string{"wg-keeper-node", "init", "--print-path"})
+	handled, err := handleInit(cfg, []string{testBinName, "init", "--print-path"})
 	if err != nil {
 		t.Fatalf("handleInit init --print-path: %v", err)
 	}

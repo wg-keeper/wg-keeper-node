@@ -14,11 +14,12 @@ import (
 )
 
 const (
-	msgUnexpectedError = "unexpected error: %v"
-	ipServerTest       = "10.0.0.1"
-	ipPeerTest         = "10.0.0.2"
-	peerIDTest         = "peer-1"
-	subnetTestCIDR     = "10.0.0.0/24"
+	msgUnexpectedError  = "unexpected error: %v"
+	ipServerTest        = "10.0.0.1"
+	ipPeerTest          = "10.0.0.2"
+	peerIDTest          = "peer-1"
+	subnetTestCIDR      = "10.0.0.0/24"
+	subnetSmallTestCIDR = "10.0.0.0/29"
 )
 
 type fakeWGClient struct {
@@ -84,23 +85,25 @@ func TestResolveServerIP4(t *testing.T) {
 	}
 }
 
-func TestAllocateIPSkipsUsed(t *testing.T) {
-	_, subnet, _ := net.ParseCIDR("10.0.0.0/29")
-	serverIP := net.ParseIP(ipServerTest)
+func newTestServiceWithSubnet29(t *testing.T, device *wgtypes.Device) *WireGuardService {
+	t.Helper()
+	_, subnet, _ := net.ParseCIDR(subnetSmallTestCIDR)
+	return &WireGuardService{
+		client:     fakeWGClient{device: device},
+		deviceName: "wg0",
+		subnet4:    subnet,
+		serverIP4:  net.ParseIP(ipServerTest),
+		store:      NewPeerStore(),
+	}
+}
 
+func TestAllocateIPSkipsUsed(t *testing.T) {
 	device := &wgtypes.Device{
 		Peers: []wgtypes.Peer{
 			{AllowedIPs: []net.IPNet{ipNet(t, "10.0.0.3")}},
 		},
 	}
-
-	svc := &WireGuardService{
-		client:     fakeWGClient{device: device},
-		deviceName: "wg0",
-		subnet4:    subnet,
-		serverIP4:  serverIP,
-		store:      NewPeerStore(),
-	}
+	svc := newTestServiceWithSubnet29(t, device)
 	svc.store.Set(PeerRecord{
 		PeerID:     peerIDTest,
 		PublicKey:  wgtypes.Key{},
@@ -140,7 +143,7 @@ func TestAllocateIPNoAvailable(t *testing.T) {
 }
 
 func TestStatsActivePeers(t *testing.T) {
-	_, subnet, _ := net.ParseCIDR("10.0.0.0/29")
+	_, subnet, _ := net.ParseCIDR(subnetSmallTestCIDR)
 	serverIP := net.ParseIP(ipServerTest)
 	now := time.Now()
 
@@ -373,12 +376,12 @@ func TestServerInfo(t *testing.T) {
 
 func TestRecordAllowedIPsInSubnets(t *testing.T) {
 	_, subnet4, _ := net.ParseCIDR("10.0.0.0/24")
-	_, subnet6, _ := net.ParseCIDR("fd00::/64")
+	_, subnet6, _ := net.ParseCIDR(subnet6TestCIDR64)
 	svc := &WireGuardService{
 		subnet4:   subnet4,
-		serverIP4: net.ParseIP("10.0.0.1"),
+		serverIP4: net.ParseIP(ipServerTest),
 		subnet6:   subnet6,
-		serverIP6: net.ParseIP("fd00::1"),
+		serverIP6: net.ParseIP(ipv6TestAddr1),
 		store:     NewPeerStore(),
 	}
 
@@ -392,7 +395,7 @@ func TestRecordAllowedIPsInSubnets(t *testing.T) {
 		t.Error("expected false for IP outside subnets")
 	}
 
-	svc4Only := &WireGuardService{subnet4: subnet4, serverIP4: net.ParseIP("10.0.0.1"), store: NewPeerStore()}
+	svc4Only := &WireGuardService{subnet4: subnet4, serverIP4: net.ParseIP(ipServerTest), store: NewPeerStore()}
 	rec4 := PeerRecord{AllowedIPs: []net.IPNet{ipNet(t, "10.0.0.3")}}
 	if !svc4Only.recordAllowedIPsInSubnets(rec4) {
 		t.Error("expected true for IPv4 in subnet")
@@ -428,7 +431,7 @@ func TestSavePersistNoPath(t *testing.T) {
 }
 
 func TestEnsurePeerNewPeer(t *testing.T) {
-	_, subnet4, _ := net.ParseCIDR("10.0.0.0/29")
+	_, subnet4, _ := net.ParseCIDR(subnetSmallTestCIDR)
 	svc := &WireGuardService{
 		client:     fakeWGClient{device: &wgtypes.Device{}},
 		deviceName: "wg0",
@@ -453,7 +456,7 @@ func TestEnsurePeerNewPeer(t *testing.T) {
 }
 
 func TestEnsurePeerDuplicateRotates(t *testing.T) {
-	_, subnet4, _ := net.ParseCIDR("10.0.0.0/29")
+	_, subnet4, _ := net.ParseCIDR(subnetSmallTestCIDR)
 	key, _ := wgtypes.GenerateKey()
 	svc := &WireGuardService{
 		client:     fakeWGClient{device: &wgtypes.Device{Peers: []wgtypes.Peer{{PublicKey: key, AllowedIPs: []net.IPNet{ipNet(t, ipPeerTest)}}}}},
