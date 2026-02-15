@@ -19,7 +19,7 @@ const (
 )
 
 var (
-	ErrPeerNotFound            = errors.New("peer not found")
+	ErrPeerNotFound             = errors.New("peer not found")
 	ErrNoAvailableIP            = errors.New("no available ip addresses")
 	ErrUnsupportedAddressFamily = errors.New("requested address family is not supported by this node")
 )
@@ -71,11 +71,11 @@ type PeerStats struct {
 }
 
 type WireGuardInfo struct {
-	Interface        string   `json:"interface"`
-	ListenPort       int      `json:"listenPort"`
-	Subnets          []string `json:"subnets"`
-	ServerIPs        []string `json:"serverIps"`
-	AddressFamilies  []string `json:"addressFamilies"`  // what the node supports, e.g. ["IPv4", "IPv6"]
+	Interface       string   `json:"interface"`
+	ListenPort      int      `json:"listenPort"`
+	Subnets         []string `json:"subnets"`
+	ServerIPs       []string `json:"serverIps"`
+	AddressFamilies []string `json:"addressFamilies"` // what the node supports, e.g. ["IPv4", "IPv6"]
 }
 
 // PeerListItem is a minimal peer entry for list responses.
@@ -369,7 +369,7 @@ func (s *WireGuardService) GetPeer(peerID string) (*PeerDetail, error) {
 	now := time.Now()
 	item := peerRecordToListItem(record, devicePeer, now)
 	detail := &PeerDetail{
-		PeerListItem:   item,
+		PeerListItem:  item,
 		ReceiveBytes:  devicePeer.ReceiveBytes,
 		TransmitBytes: devicePeer.TransmitBytes,
 	}
