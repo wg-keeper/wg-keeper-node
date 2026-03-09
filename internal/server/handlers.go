@@ -42,6 +42,21 @@ func healthHandler(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"status": "ok"})
 }
 
+// readinessHandler checks whether core WireGuard dependencies are healthy enough to serve traffic.
+// Currently it treats successful Stats() call as readiness signal.
+func readinessHandler(wgService statsProvider) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if _, err := wgService.Stats(); err != nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{
+				"status": "unhealthy",
+				"reason": "wireguard_unavailable",
+			})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"status": "ok"})
+	}
+}
+
 func statsHandler(wgService statsProvider, debug bool) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		stats, err := wgService.Stats()
@@ -56,6 +71,9 @@ func statsHandler(wgService statsProvider, debug bool) gin.HandlerFunc {
 
 func createPeerHandler(wgService wgPeerService, debug bool) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		requestID := GetRequestID(c)
+		clientIP := c.ClientIP()
+
 		var req peerRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
 			writeError(c, http.StatusBadRequest, "invalid json body", "invalid_json", debug, err)
@@ -74,19 +92,22 @@ func createPeerHandler(wgService wgPeerService, debug bool) gin.HandlerFunc {
 		info, err := wgService.EnsurePeer(req.PeerID, expiresAt, req.AddressFamilies)
 		if err != nil {
 			status, message, reason := peerError(err)
-			log.Printf("peer create failed: reason=%s", reason)
+			log.Printf("time=%s level=error msg=\"peer create failed\" reason=%s peer_id=%s client_ip=%s request_id=%s",
+				time.Now().Format(time.RFC3339), reason, req.PeerID, clientIP, requestID)
 			writeError(c, status, message, reason, debug, err)
 			return
 		}
 
 		serverPublicKey, serverListenPort, err := wgService.ServerInfo()
 		if err != nil {
-			log.Printf("peer create failed: reason=server_info_unavailable")
+			log.Printf("time=%s level=error msg=\"peer create failed\" reason=server_info_unavailable peer_id=%s client_ip=%s request_id=%s",
+				time.Now().Format(time.RFC3339), req.PeerID, clientIP, requestID)
 			writeError(c, http.StatusInternalServerError, "server public key unavailable", "server_info_unavailable", debug, err)
 			return
 		}
 
-		log.Printf("peer created")
+		log.Printf("time=%s level=info msg=\"peer created\" peer_id=%s client_ip=%s request_id=%s",
+			time.Now().Format(time.RFC3339), info.PeerID, clientIP, requestID)
 		c.JSON(http.StatusOK, createPeerResponse{
 			Server: serverInfoResponse{
 				PublicKey:  serverPublicKey,
@@ -107,6 +128,8 @@ func createPeerHandler(wgService wgPeerService, debug bool) gin.HandlerFunc {
 func deletePeerHandler(wgService wgPeerService, debug bool) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		peerID := c.Param("peerId")
+		requestID := GetRequestID(c)
+		clientIP := c.ClientIP()
 		if !IsUUIDv4(peerID) {
 			writeError(c, http.StatusBadRequest, errMsgPeerIDMustBeUUIDv4, "invalid_peer_id", debug, nil)
 			return
@@ -114,12 +137,14 @@ func deletePeerHandler(wgService wgPeerService, debug bool) gin.HandlerFunc {
 
 		if err := wgService.DeletePeer(peerID); err != nil {
 			status, message, reason := peerError(err)
-			log.Printf("peer delete failed: reason=%s", reason)
+			log.Printf("time=%s level=error msg=\"peer delete failed\" reason=%s peer_id=%s client_ip=%s request_id=%s",
+				time.Now().Format(time.RFC3339), reason, peerID, clientIP, requestID)
 			writeError(c, status, message, reason, debug, err)
 			return
 		}
 
-		log.Printf("peer deleted")
+		log.Printf("time=%s level=info msg=\"peer deleted\" peer_id=%s client_ip=%s request_id=%s",
+			time.Now().Format(time.RFC3339), peerID, clientIP, requestID)
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
 	}
 }

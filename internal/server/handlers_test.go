@@ -96,8 +96,8 @@ func performRequest(t *testing.T, router *gin.Engine, method, path string, body 
 
 func TestHealthHandler(t *testing.T) {
 	router := newTestRouter()
-	router.GET("/health", healthHandler)
-	rec := performRequest(t, router, http.MethodGet, "/health", nil, "")
+	router.GET("/healthz", healthHandler)
+	rec := performRequest(t, router, http.MethodGet, "/healthz", nil, "")
 	assertStatus(t, rec, http.StatusOK)
 	var payload map[string]interface{}
 	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {

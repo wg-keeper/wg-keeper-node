@@ -70,7 +70,7 @@ flowchart LR
 ## Security
 
 - **API key authentication** on all protected endpoints.
-- **Optional IP allowlist** (`server.allowed_ips`): when set, only these IPs can access protected routes; `/health` stays public.
+- **Optional IP allowlist** (`server.allowed_ips`): when set, only these IPs can access protected routes; `/healthz` and `/readyz` stay public.
 - **Rate limiting** (when `server.allowed_ips` is not set): 20 req/s per client IP, burst 30; disabled when allowlist is set so trusted orchestrators are not limited.
 - **Request body limit**: 256 KB; larger bodies get `413 Request Entity Too Large`.
 - **Security headers** on every response: `X-Content-Type-Options`, `X-Frame-Options`, `X-XSS-Protection`, `Referrer-Policy`; `Strict-Transport-Security` when using TLS.
@@ -197,7 +197,8 @@ All protected endpoints require the `X-API-Key` header. Responses include `X-Req
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET` | `/health` | Health check (public) |
+| `GET` | `/healthz` | Liveness probe (public): process is up and serving HTTP requests |
+| `GET` | `/readyz` | Readiness probe (public): WireGuard backend and stats are available |
 | `GET` | `/stats` | WireGuard statistics (protected) |
 | `GET` | `/peers` | List peers (protected) |
 | `GET` | `/peers/:peerId` | Peer details and traffic (protected) |

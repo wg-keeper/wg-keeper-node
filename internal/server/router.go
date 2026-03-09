@@ -44,7 +44,10 @@ func debugMiddleware(debug bool) gin.HandlerFunc {
 }
 
 func registerRoutes(router *gin.Engine, apiKey string, allowedNets []*net.IPNet, wgService *wireguard.WireGuardService, debug bool) {
-	router.GET("/health", healthHandler)
+	// Liveness probe: process is up and able to serve requests.
+	router.GET("/healthz", healthHandler)
+	// Readiness probe: WireGuard backend is reachable and stats can be fetched.
+	router.GET("/readyz", readinessHandler(wgService))
 	router.GET("/stats", ipWhitelistMiddleware(allowedNets), apiKeyMiddleware(apiKey), statsHandler(wgService, debug))
 
 	peers := router.Group("/peers", ipWhitelistMiddleware(allowedNets), apiKeyMiddleware(apiKey))
