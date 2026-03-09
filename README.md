@@ -176,7 +176,7 @@ Two compose files are provided:
    docker compose -f docker-compose.local.yml up -d
    ```
 
-The example uses `ghcr.io/wg-keeper/node:0.0.4` (or use `edge` for latest from `main`), with `NET_ADMIN`, `SYS_MODULE`, volumes for `config.yaml` and `./wireguard`, and ports `51820/udp`, `51821`. IPv4/IPv6 forwarding sysctls and an IPv6-enabled network are set; adjust to your environment.
+The example uses `ghcr.io/wg-keeper/node:0.0.5` (or use `edge` for latest from `main`), with `NET_ADMIN`, `SYS_MODULE`, volumes for `config.yaml` and `./wireguard`, and ports `51820/udp`, `51821`. IPv4/IPv6 forwarding sysctls and an IPv6-enabled network are set; adjust to your environment.
 
 ### Caddy reverse proxy
 
@@ -267,7 +267,7 @@ All protected endpoints require the `X-API-Key` header. Responses include `X-Req
 
 ```json
 {
-  "service": { "name": "wg-keeper-node", "version": "0.0.4" },
+  "service": { "name": "wg-keeper-node", "version": "0.0.5" },
   "wireguard": {
     "interface": "wg0",
     "listenPort": 51820,
