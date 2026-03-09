@@ -108,6 +108,44 @@ func TestHealthHandler(t *testing.T) {
 	}
 }
 
+func TestReadinessHandlerHealthy(t *testing.T) {
+	router := newTestRouter()
+	router.GET("/readyz", readinessHandler(mockWGService{
+		statsFunc: func() (wireguard.Stats, error) {
+			return wireguard.Stats{}, nil
+		},
+	}))
+
+	rec := performRequest(t, router, http.MethodGet, "/readyz", nil, "")
+	assertStatus(t, rec, http.StatusOK)
+	var payload map[string]interface{}
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf(msgInvalidJSON, err)
+	}
+	if payload["status"] != "ok" {
+		t.Errorf("expected status ok, got %v", payload["status"])
+	}
+}
+
+func TestReadinessHandlerUnhealthy(t *testing.T) {
+	router := newTestRouter()
+	router.GET("/readyz", readinessHandler(mockWGService{
+		statsFunc: func() (wireguard.Stats, error) {
+			return wireguard.Stats{}, errors.New("wireguard down")
+		},
+	}))
+
+	rec := performRequest(t, router, http.MethodGet, "/readyz", nil, "")
+	assertStatus(t, rec, http.StatusServiceUnavailable)
+	var payload map[string]interface{}
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf(msgInvalidJSON, err)
+	}
+	if payload["status"] != "unhealthy" || payload["reason"] != "wireguard_unavailable" {
+		t.Fatalf("unexpected readiness payload: %v", payload)
+	}
+}
+
 func TestStatsHandlerSuccess(t *testing.T) {
 	router := newTestRouter()
 	router.GET(pathStats, apiKeyMiddleware(testAPIKey), statsHandler(mockWGService{

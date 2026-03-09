@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 )
@@ -48,6 +49,27 @@ func TestRateLimitMiddleware(t *testing.T) {
 		}
 		if lastCode != http.StatusTooManyRequests {
 			t.Errorf("expected 429 after many requests, last status was %d", lastCode)
+		}
+	})
+
+	t.Run("ipRateLimiter_cleanupLocked_removes_stale_entries", func(t *testing.T) {
+		limiter := newIPRateLimiter(rateLimitRPS, rateLimitBurst)
+		now := time.Now()
+
+		// Create an entry by calling get once.
+		_ = limiter.get("192.0.2.1")
+
+		limiter.mu.Lock()
+		// Mark it as very old so that cleanupLocked should evict it.
+		if entry, ok := limiter.limiters["192.0.2.1"]; ok {
+			entry.lastSeen = now.Add(-2 * rateLimiterTTL)
+		}
+		limiter.cleanupLocked(now)
+		remaining := len(limiter.limiters)
+		limiter.mu.Unlock()
+
+		if remaining != 0 {
+			t.Fatalf("expected limiter map to be empty after cleanup, got %d entries", remaining)
 		}
 	})
 }
