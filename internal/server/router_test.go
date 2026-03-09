@@ -13,11 +13,11 @@ const routerTestAPIKey = "api-key"
 func TestNewRouterHealth(t *testing.T) {
 	svc := wireguard.NewTestService()
 	router := NewRouter(routerTestAPIKey, nil, svc, false)
-	req := httptest.NewRequest(http.MethodGet, "/health", nil)
+	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
-		t.Errorf("GET /health: got status %d", rec.Code)
+		t.Errorf("GET /healthz: got status %d", rec.Code)
 	}
 }
 

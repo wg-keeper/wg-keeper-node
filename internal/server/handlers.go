@@ -42,6 +42,21 @@ func healthHandler(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"status": "ok"})
 }
 
+// readinessHandler checks whether core WireGuard dependencies are healthy enough to serve traffic.
+// Currently it treats successful Stats() call as readiness signal.
+func readinessHandler(wgService statsProvider) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if _, err := wgService.Stats(); err != nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{
+				"status": "unhealthy",
+				"reason": "wireguard_unavailable",
+			})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"status": "ok"})
+	}
+}
+
 func statsHandler(wgService statsProvider, debug bool) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		stats, err := wgService.Stats()
@@ -74,19 +89,23 @@ func createPeerHandler(wgService wgPeerService, debug bool) gin.HandlerFunc {
 		info, err := wgService.EnsurePeer(req.PeerID, expiresAt, req.AddressFamilies)
 		if err != nil {
 			status, message, reason := peerError(err)
-			log.Printf("peer create failed: reason=%s", reason)
+			// Do not log user-controlled data to avoid log injection.
+			log.Printf("time=%s level=error msg=\"peer create failed\" reason=%s",
+				time.Now().Format(time.RFC3339), reason)
 			writeError(c, status, message, reason, debug, err)
 			return
 		}
 
 		serverPublicKey, serverListenPort, err := wgService.ServerInfo()
 		if err != nil {
-			log.Printf("peer create failed: reason=server_info_unavailable")
+			log.Printf("time=%s level=error msg=\"peer create failed\" reason=server_info_unavailable",
+				time.Now().Format(time.RFC3339))
 			writeError(c, http.StatusInternalServerError, "server public key unavailable", "server_info_unavailable", debug, err)
 			return
 		}
 
-		log.Printf("peer created")
+		log.Printf("time=%s level=info msg=\"peer created\"",
+			time.Now().Format(time.RFC3339))
 		c.JSON(http.StatusOK, createPeerResponse{
 			Server: serverInfoResponse{
 				PublicKey:  serverPublicKey,
@@ -114,12 +133,15 @@ func deletePeerHandler(wgService wgPeerService, debug bool) gin.HandlerFunc {
 
 		if err := wgService.DeletePeer(peerID); err != nil {
 			status, message, reason := peerError(err)
-			log.Printf("peer delete failed: reason=%s", reason)
+			// Do not log user-controlled data to avoid log injection.
+			log.Printf("time=%s level=error msg=\"peer delete failed\" reason=%s",
+				time.Now().Format(time.RFC3339), reason)
 			writeError(c, status, message, reason, debug, err)
 			return
 		}
 
-		log.Printf("peer deleted")
+		log.Printf("time=%s level=info msg=\"peer deleted\"",
+			time.Now().Format(time.RFC3339))
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
 	}
 }

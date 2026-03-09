@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/wg-keeper/wg-keeper-node/internal/config"
@@ -49,6 +50,8 @@ type WireGuardService struct {
 	serverIP6   net.IP
 	store       *PeerStore
 	persistPath string // if set, peer store is persisted to this file
+	// mu serializes operations that modify WireGuard device and peer store together
+	mu sync.Mutex
 }
 
 type wgClient interface {
@@ -301,6 +304,9 @@ func (s *WireGuardService) ValidateAddressFamilies(requested []string) ([]string
 }
 
 func (s *WireGuardService) EnsurePeer(peerID string, expiresAt *time.Time, addressFamilies []string) (PeerInfo, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	if record, ok := s.store.Get(peerID); ok {
 		return s.rotatePeer(peerID, record, expiresAt)
 	}
@@ -372,6 +378,9 @@ func (s *WireGuardService) ServerInfo() (string, int, error) {
 }
 
 func (s *WireGuardService) DeletePeer(peerID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	record, ok := s.store.Get(peerID)
 	if !ok {
 		return ErrPeerNotFound

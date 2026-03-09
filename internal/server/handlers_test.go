@@ -19,6 +19,7 @@ const (
 	pathPeers               = "/peers"
 	pathPeersPeerID         = "/peers/:peerId"
 	pathPeersTestUUID       = "/peers/550e8400-e29b-41d4-a716-446655440000"
+	pathReadyz              = "/readyz"
 	testAllowedIP           = "10.0.0.2/32"
 	testAPIKey              = "key"
 	createPeerBody          = `{"peerId":"550e8400-e29b-41d4-a716-446655440000"}`
@@ -96,8 +97,8 @@ func performRequest(t *testing.T, router *gin.Engine, method, path string, body 
 
 func TestHealthHandler(t *testing.T) {
 	router := newTestRouter()
-	router.GET("/health", healthHandler)
-	rec := performRequest(t, router, http.MethodGet, "/health", nil, "")
+	router.GET("/healthz", healthHandler)
+	rec := performRequest(t, router, http.MethodGet, "/healthz", nil, "")
 	assertStatus(t, rec, http.StatusOK)
 	var payload map[string]interface{}
 	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
@@ -105,6 +106,44 @@ func TestHealthHandler(t *testing.T) {
 	}
 	if payload["status"] != "ok" {
 		t.Errorf("expected status ok, got %v", payload["status"])
+	}
+}
+
+func TestReadinessHandlerHealthy(t *testing.T) {
+	router := newTestRouter()
+	router.GET(pathReadyz, readinessHandler(mockWGService{
+		statsFunc: func() (wireguard.Stats, error) {
+			return wireguard.Stats{}, nil
+		},
+	}))
+
+	rec := performRequest(t, router, http.MethodGet, pathReadyz, nil, "")
+	assertStatus(t, rec, http.StatusOK)
+	var payload map[string]interface{}
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf(msgInvalidJSON, err)
+	}
+	if payload["status"] != "ok" {
+		t.Errorf("expected status ok, got %v", payload["status"])
+	}
+}
+
+func TestReadinessHandlerUnhealthy(t *testing.T) {
+	router := newTestRouter()
+	router.GET(pathReadyz, readinessHandler(mockWGService{
+		statsFunc: func() (wireguard.Stats, error) {
+			return wireguard.Stats{}, errors.New("wireguard down")
+		},
+	}))
+
+	rec := performRequest(t, router, http.MethodGet, pathReadyz, nil, "")
+	assertStatus(t, rec, http.StatusServiceUnavailable)
+	var payload map[string]interface{}
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf(msgInvalidJSON, err)
+	}
+	if payload["status"] != "unhealthy" || payload["reason"] != "wireguard_unavailable" {
+		t.Fatalf("unexpected readiness payload: %v", payload)
 	}
 }
 
