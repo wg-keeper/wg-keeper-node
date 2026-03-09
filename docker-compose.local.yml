@@ -20,6 +20,12 @@ services:
       - net.ipv6.conf.all.disable_ipv6=0
       - net.ipv6.conf.all.forwarding=1
       - net.ipv6.conf.default.forwarding=1
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:51821/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
 
 networks:
   default:
