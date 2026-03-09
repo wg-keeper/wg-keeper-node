@@ -3,9 +3,11 @@
 	# email you@example.com
 }
 
-# Simple default: HTTP reverse proxy to the API
-:443 {
+api.example.com  {
 	encode gzip zstd
+
+	# If you use your own certificates (paths are just examples)
+    # tls /etc/ssl/certs/api.example.com.crt /etc/ssl/private/api.example.com.key
 
 	# Forward all HTTP traffic to the wg-keeper-node API inside Docker
 	# Default API port is 51821 (see config.yaml -> server.port)
