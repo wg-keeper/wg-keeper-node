@@ -1,0 +1,14 @@
+{
+	# Global options block (optional)
+	# email you@example.com
+}
+
+# Simple default: HTTP reverse proxy to the API
+:443 {
+	encode gzip zstd
+
+	# Forward all HTTP traffic to the wg-keeper-node API inside Docker
+	# Default API port is 51821 (see config.yaml -> server.port)
+	reverse_proxy wireguard:51821
+}
+

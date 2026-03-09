@@ -157,7 +157,12 @@ On startup the node creates `/etc/wireguard/<interface>.conf` if missing and bri
 
 ## Running with Docker Compose (recommended)
 
-Use the example `docker-compose.yml`:
+Two compose files are provided:
+
+- `docker-compose.local.yml` — simple, secure defaults for local use or basic setups.
+- `docker-compose.prod-secure.yml` — production‑oriented setup where Caddy is the only HTTP(S) entrypoint and the REST API is never exposed directly on the host.
+
+### Basic mode (simple & secure defaults)
 
 1. **Config**
    ```bash
@@ -168,10 +173,63 @@ Use the example `docker-compose.yml`:
 
 3. **Start**
    ```bash
-   docker compose up -d
+   docker compose -f docker-compose.local.yml up -d
    ```
 
 The example uses `ghcr.io/wg-keeper/node:0.0.4` (or use `edge` for latest from `main`), with `NET_ADMIN`, `SYS_MODULE`, volumes for `config.yaml` and `./wireguard`, and ports `51820/udp`, `51821`. IPv4/IPv6 forwarding sysctls and an IPv6-enabled network are set; adjust to your environment.
+
+### Caddy reverse proxy
+
+For users who want to run WG Keeper Node behind [Caddy](https://caddyserver.com) (for example to terminate TLS or serve it under a custom domain), an example `Caddyfile` is provided. The production‑oriented compose file `docker-compose.prod-secure.yml` defines a `caddy` service that uses this configuration and acts as the only HTTP(S) entrypoint.
+
+**Example `Caddyfile` (you can edit as needed):**
+
+```Caddyfile
+{
+	# Global options block (optional)
+	# email you@example.com
+}
+
+# Simple default: HTTP reverse proxy to the API
+:443 {
+	encode gzip zstd
+
+	reverse_proxy wireguard:51821
+}
+```
+
+To customize behaviour:
+
+- **Domain / automatic HTTPS:** change the site address (e.g. `api.example.com`) instead of `:443` in the `Caddyfile`. Caddy can automatically obtain and renew certificates from Let's Encrypt when ports 80/443 are reachable and DNS is configured.
+- **Custom API port:** if you change `server.port` in `config.yaml`, update `reverse_proxy wireguard:<port>` accordingly.
+- **Extra routes / headers:** extend the `Caddyfile` as you like; the container is a stock `caddy:2` image.
+
+### Production mode (Caddy as the only HTTP entrypoint)
+
+For a more locked-down, production-style setup where the REST API is never exposed directly on the host, use `docker-compose.prod-secure.yml`.
+
+**Behaviour in production mode:**
+
+- `wireguard`:
+  - Exposes only the WireGuard UDP port `51820/udp` on the host.
+  - The REST API port `51821` is only reachable inside the Docker network.
+- `caddy`:
+  - Listens on ports `80` and `443` on the host and reverse‑proxies to `wireguard:51821`.
+
+**Recommended config for production mode:**
+
+- Set a long, random `auth.api_key` in `config.yaml` (or via env).
+- Set `server.allowed_ips` to the IPs/CIDRs of your orchestrator / control plane; only these IPs can call protected endpoints.
+- Restrict inbound access to ports `80` and `443` on the host using firewall / security groups to only your orchestrator IPs.
+- Optionally point a domain (e.g. `api.example.com`) at this node and configure Caddy for automatic HTTPS with Let's Encrypt.
+
+**Start production mode:**
+
+```bash
+docker compose -f docker-compose.prod-secure.yml up -d
+```
+
+This keeps the local example `docker-compose.local.yml` simple for most users, while `docker-compose.prod-secure.yml` provides a secure, opinionated example for production-style deployments.
 
 ## Running locally
 
