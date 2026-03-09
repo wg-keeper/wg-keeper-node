@@ -20,6 +20,9 @@ func NewRouter(apiKey string, allowedNets []*net.IPNet, wgService *wireguard.Wir
 	router.Use(newRateLimitMiddleware(allowedNets))
 	router.Use(debugMiddleware(debug))
 	router.Use(gin.LoggerWithFormatter(func(param gin.LogFormatterParams) string {
+		if param.Path == "/healthz" || param.Path == "/readyz" {
+			return ""
+		}
 		requestID := GetRequestIDFromContext(param.Request.Context())
 		return fmt.Sprintf(
 			"time=%s level=info msg=\"http request\" method=%s path=%s status=%d latency=%s ip=%s request_id=%s\n",
