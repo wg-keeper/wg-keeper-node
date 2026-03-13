@@ -253,7 +253,7 @@ func getPeerHandler(wgService wgPeerDetailProvider, debug bool) gin.HandlerFunc 
 			writeError(c, status, message, reason, debug, err)
 			return
 		}
-		c.JSON(http.StatusOK, PeerDetailResponse{Peer: detail})
+		c.JSON(http.StatusOK, detail)
 	}
 }
 

@@ -41,11 +41,6 @@ type DeletePeerResponse struct {
 	Status string `json:"status"`
 }
 
-// PeerDetailResponse wraps a single peer detail.
-type PeerDetailResponse struct {
-	Peer *wireguard.PeerDetail `json:"peer"`
-}
-
 // CreatePeerResponseEnvelope is the envelope for successful peer creation.
 // createPeerResponse is defined in handlers.go in the same package.
 type CreatePeerResponseEnvelope = Response[createPeerResponse]

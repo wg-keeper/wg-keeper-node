@@ -467,14 +467,12 @@ func TestGetPeerSuccess(t *testing.T) {
 
 	rec := performRequest(t, router, http.MethodGet, pathPeersTestUUID, nil, testAPIKey)
 	assertStatus(t, rec, http.StatusOK)
-	var payload struct {
-		Peer wireguard.PeerDetail `json:"peer"`
-	}
+	var payload wireguard.PeerDetail
 	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
 		t.Fatalf(msgInvalidJSON, err)
 	}
-	if payload.Peer.PeerID != "550e8400-e29b-41d4-a716-446655440000" || payload.Peer.ReceiveBytes != 1000 {
-		t.Fatalf("unexpected peer in response: %+v", payload.Peer)
+	if payload.PeerID != "550e8400-e29b-41d4-a716-446655440000" || payload.ReceiveBytes != 1000 {
+		t.Fatalf("unexpected peer in response: %+v", payload)
 	}
 }
 
