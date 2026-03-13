@@ -374,3 +374,77 @@ wireguard:
 		t.Fatalf("expected peer_store_file peers.json, got %q", cfg.PeerStoreFile)
 	}
 }
+
+// ---------- subnet size validation ----------
+
+const subnetValidationBase = `
+server:
+  port: "51821"
+auth:
+  api_key: "test-key"
+wireguard:
+  interface: "wg0"
+  listen_port: 51820
+  routing:
+    wan_interface: "eth0"
+`
+
+func writeSubnetConfig(t *testing.T, subnet, subnet6 string) string {
+	t.Helper()
+	content := subnetValidationBase
+	if subnet != "" {
+		content += "  subnet: " + `"` + subnet + `"` + "\n"
+	}
+	if subnet6 != "" {
+		content += "  subnet6: " + `"` + subnet6 + `"` + "\n"
+	}
+	return writeConfigFile(t, content)
+}
+
+func TestLoadConfigSubnet32Rejected(t *testing.T) {
+	path := writeSubnetConfig(t, "10.0.0.1/32", "")
+	t.Setenv("NODE_CONFIG", path)
+	if _, err := LoadConfig(); err == nil {
+		t.Fatal("expected error for /32 IPv4 subnet (too small)")
+	}
+}
+
+func TestLoadConfigSubnet31Rejected(t *testing.T) {
+	path := writeSubnetConfig(t, "10.0.0.0/31", "")
+	t.Setenv("NODE_CONFIG", path)
+	if _, err := LoadConfig(); err == nil {
+		t.Fatal("expected error for /31 IPv4 subnet (too small)")
+	}
+}
+
+func TestLoadConfigSubnet30Valid(t *testing.T) {
+	path := writeSubnetConfig(t, "10.0.0.0/30", "")
+	t.Setenv("NODE_CONFIG", path)
+	if _, err := LoadConfig(); err != nil {
+		t.Fatalf("expected /30 IPv4 to be valid, got error: %v", err)
+	}
+}
+
+func TestLoadConfigSubnet128IPv6Rejected(t *testing.T) {
+	path := writeSubnetConfig(t, "", "fd00::1/128")
+	t.Setenv("NODE_CONFIG", path)
+	if _, err := LoadConfig(); err == nil {
+		t.Fatal("expected error for /128 IPv6 subnet (too small)")
+	}
+}
+
+func TestLoadConfigSubnet127IPv6Rejected(t *testing.T) {
+	path := writeSubnetConfig(t, "", "fd00::/127")
+	t.Setenv("NODE_CONFIG", path)
+	if _, err := LoadConfig(); err == nil {
+		t.Fatal("expected error for /127 IPv6 subnet (too small)")
+	}
+}
+
+func TestLoadConfigSubnet126IPv6Valid(t *testing.T) {
+	path := writeSubnetConfig(t, "", "fd00::/126")
+	t.Setenv("NODE_CONFIG", path)
+	if _, err := LoadConfig(); err != nil {
+		t.Fatalf("expected /126 IPv6 to be valid, got error: %v", err)
+	}
+}

@@ -504,3 +504,102 @@ func TestGetPeerUnauthorized(t *testing.T) {
 	rec := performRequest(t, router, http.MethodGet, pathPeersTestUUID, nil, "")
 	assertStatus(t, rec, http.StatusUnauthorized)
 }
+
+// ---------- pagination tests ----------
+
+func makePeerList(n int) []wireguard.PeerListItem {
+	peers := make([]wireguard.PeerListItem, n)
+	for i := range peers {
+		peers[i] = wireguard.PeerListItem{PeerID: "peer-" + string(rune('a'+i))}
+	}
+	return peers
+}
+
+func listPeersWithPagination(t *testing.T, peers []wireguard.PeerListItem, query string) (list []interface{}, total float64) {
+	t.Helper()
+	router := newTestRouter()
+	router.GET(pathPeers, apiKeyMiddleware(testAPIKey), listPeersHandler(mockWGService{
+		listPeersFunc: func() ([]wireguard.PeerListItem, error) { return peers, nil },
+	}, false))
+
+	rec := performRequest(t, router, http.MethodGet, pathPeers+query, nil, testAPIKey)
+	assertStatus(t, rec, http.StatusOK)
+	var payload map[string]interface{}
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf(msgInvalidJSON, err)
+	}
+	rawPeers, _ := payload["peers"].([]interface{})
+	total, _ = payload["total"].(float64)
+	return rawPeers, total
+}
+
+func TestListPeersResponseIncludesTotal(t *testing.T) {
+	peers := makePeerList(5)
+	list, total := listPeersWithPagination(t, peers, "")
+	if total != 5 {
+		t.Errorf("expected total=5, got %v", total)
+	}
+	if len(list) != 5 {
+		t.Errorf("expected 5 peers returned, got %d", len(list))
+	}
+}
+
+func TestListPeersLimit(t *testing.T) {
+	peers := makePeerList(10)
+	list, total := listPeersWithPagination(t, peers, "?limit=3")
+	if total != 10 {
+		t.Errorf("expected total=10, got %v", total)
+	}
+	if len(list) != 3 {
+		t.Errorf("expected 3 peers with limit=3, got %d", len(list))
+	}
+}
+
+func TestListPeersOffset(t *testing.T) {
+	peers := makePeerList(10)
+	list, total := listPeersWithPagination(t, peers, "?offset=7")
+	if total != 10 {
+		t.Errorf("expected total=10, got %v", total)
+	}
+	if len(list) != 3 {
+		t.Errorf("expected 3 peers after offset=7 of 10, got %d", len(list))
+	}
+}
+
+func TestListPeersOffsetAndLimit(t *testing.T) {
+	peers := makePeerList(10)
+	list, total := listPeersWithPagination(t, peers, "?offset=2&limit=4")
+	if total != 10 {
+		t.Errorf("expected total=10, got %v", total)
+	}
+	if len(list) != 4 {
+		t.Errorf("expected 4 peers (offset=2, limit=4), got %d", len(list))
+	}
+}
+
+func TestListPeersOffsetBeyondTotal(t *testing.T) {
+	peers := makePeerList(5)
+	list, total := listPeersWithPagination(t, peers, "?offset=100")
+	if total != 5 {
+		t.Errorf("expected total=5, got %v", total)
+	}
+	if len(list) != 0 {
+		t.Errorf("expected 0 peers when offset > total, got %d", len(list))
+	}
+}
+
+func TestListPeersInvalidParamsIgnored(t *testing.T) {
+	peers := makePeerList(5)
+	list, _ := listPeersWithPagination(t, peers, "?offset=abc&limit=xyz")
+	if len(list) != 5 {
+		t.Errorf("expected all 5 peers with invalid params, got %d", len(list))
+	}
+}
+
+func TestListPeersLimitLargerThanTotal(t *testing.T) {
+	peers := makePeerList(3)
+	list, _ := listPeersWithPagination(t, peers, "?limit=100")
+	if len(list) != 3 {
+		t.Errorf("expected 3 peers when limit > total, got %d", len(list))
+	}
+}

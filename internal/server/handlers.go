@@ -4,6 +4,7 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/wg-keeper/wg-keeper-node/internal/wireguard"
@@ -156,8 +157,27 @@ func listPeersHandler(wgService wgPeersListProvider, debug bool) gin.HandlerFunc
 		if list == nil {
 			list = []wireguard.PeerListItem{}
 		}
-		c.JSON(http.StatusOK, gin.H{"peers": list})
+		total := len(list)
+		list = applyPagination(list, c.Query("offset"), c.Query("limit"))
+		c.JSON(http.StatusOK, gin.H{"peers": list, "total": total})
 	}
+}
+
+// applyPagination slices the list according to optional offset and limit query params.
+// Invalid or missing params are silently ignored (offset defaults to 0, limit defaults to no limit).
+func applyPagination(list []wireguard.PeerListItem, offsetStr, limitStr string) []wireguard.PeerListItem {
+	offset := 0
+	if n, err := strconv.Atoi(offsetStr); err == nil && n > 0 {
+		offset = n
+	}
+	if offset >= len(list) {
+		return []wireguard.PeerListItem{}
+	}
+	list = list[offset:]
+	if limit, err := strconv.Atoi(limitStr); err == nil && limit > 0 && limit < len(list) {
+		list = list[:limit]
+	}
+	return list
 }
 
 func getPeerHandler(wgService wgPeerDetailProvider, debug bool) gin.HandlerFunc {

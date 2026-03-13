@@ -3,6 +3,7 @@ package wireguard
 import (
 	"errors"
 	"fmt"
+	"log"
 	"net"
 	"os"
 	"sync"
@@ -229,9 +230,11 @@ func (s *WireGuardService) reconcileStoreWithSubnets() bool {
 	var changed bool
 	for _, rec := range s.store.List() {
 		if !s.recordAllowedIPsInSubnets(rec) {
-			_ = s.client.ConfigureDevice(s.deviceName, wgtypes.Config{
+			if err := s.client.ConfigureDevice(s.deviceName, wgtypes.Config{
 				Peers: []wgtypes.PeerConfig{{PublicKey: rec.PublicKey, Remove: true}},
-			})
+			}); err != nil {
+				log.Printf("reconcile: failed to remove peer %s from device: %v", rec.PeerID, err)
+			}
 			s.store.Delete(rec.PeerID)
 			changed = true
 		}
