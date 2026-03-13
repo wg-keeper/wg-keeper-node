@@ -169,15 +169,39 @@ func validateWireGuardSubnets(wgSubnet, wgSubnet6 string) error {
 		return fmt.Errorf("at least one of wireguard.subnet or wireguard.subnet6 is required")
 	}
 	if wgSubnet != "" {
-		_, ipNet, _ := net.ParseCIDR(wgSubnet)
-		if ipNet != nil && ipNet.IP.To4() == nil {
-			return fmt.Errorf("wireguard.subnet must be an IPv4 CIDR")
+		if err := validateWireGuardSubnet4(wgSubnet); err != nil {
+			return err
 		}
 	}
 	if wgSubnet6 != "" {
-		_, ipNet, _ := net.ParseCIDR(wgSubnet6)
-		if ipNet != nil && ipNet.IP.To4() != nil {
-			return fmt.Errorf("wireguard.subnet6 must be an IPv6 CIDR")
+		if err := validateWireGuardSubnet6(wgSubnet6); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateWireGuardSubnet4(wgSubnet string) error {
+	_, ipNet, _ := net.ParseCIDR(wgSubnet)
+	if ipNet != nil && ipNet.IP.To4() == nil {
+		return fmt.Errorf("wireguard.subnet must be an IPv4 CIDR")
+	}
+	if ipNet != nil {
+		if ones, _ := ipNet.Mask.Size(); ones > 30 {
+			return fmt.Errorf("wireguard.subnet prefix /%d is too long; maximum supported prefix is /30", ones)
+		}
+	}
+	return nil
+}
+
+func validateWireGuardSubnet6(wgSubnet6 string) error {
+	_, ipNet, _ := net.ParseCIDR(wgSubnet6)
+	if ipNet != nil && ipNet.IP.To4() != nil {
+		return fmt.Errorf("wireguard.subnet6 must be an IPv6 CIDR")
+	}
+	if ipNet != nil {
+		if ones, _ := ipNet.Mask.Size(); ones > 126 {
+			return fmt.Errorf("wireguard.subnet6 prefix /%d is too long; maximum supported prefix is /126", ones)
 		}
 	}
 	return nil

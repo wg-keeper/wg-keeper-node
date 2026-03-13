@@ -9,6 +9,16 @@ import (
 
 const msgExpectedNoError = "expected no error, got %v"
 
+const (
+	testPort         = "51821"
+	testAPIKey       = "test-key"
+	testWGSubnet4    = "10.0.0.0/24"
+	testWGServerIP4  = "10.0.0.1"
+	testWGSubnet6    = "fd00::/112"
+	testWGServerIP6  = "fd00::1"
+	testWANInterface = "eth0"
+)
+
 func writeConfigFile(t *testing.T, content string) string {
 	t.Helper()
 	dir := t.TempDir()
@@ -131,16 +141,16 @@ wireguard:
 func TestLoadConfigIPv6Only(t *testing.T) {
 	path := writeConfigFile(t, `
 server:
-  port: "51821"
+  port: "`+testPort+`"
 auth:
-  api_key: "test-key"
+  api_key: "`+testAPIKey+`"
 wireguard:
   interface: "wg0"
-  subnet6: "fd00::/112"
-  server_ip6: "fd00::1"
+  subnet6: "`+testWGSubnet6+`"
+  server_ip6: "`+testWGServerIP6+`"
   listen_port: 51820
   routing:
-    wan_interface: "eth0"
+    wan_interface: "`+testWANInterface+`"
 `)
 	t.Setenv("NODE_CONFIG", path)
 
@@ -151,11 +161,11 @@ wireguard:
 	if cfg.WGSubnet != "" {
 		t.Fatalf("expected no IPv4 subnet, got %q", cfg.WGSubnet)
 	}
-	if cfg.WGSubnet6 != "fd00::/112" {
-		t.Fatalf("expected subnet6 fd00::/112, got %q", cfg.WGSubnet6)
+	if cfg.WGSubnet6 != testWGSubnet6 {
+		t.Fatalf("expected subnet6 %s, got %q", testWGSubnet6, cfg.WGSubnet6)
 	}
-	if cfg.WGServerIP6 != "fd00::1" {
-		t.Fatalf("expected server_ip6 fd00::1, got %q", cfg.WGServerIP6)
+	if cfg.WGServerIP6 != testWGServerIP6 {
+		t.Fatalf("expected server_ip6 %s, got %q", testWGServerIP6, cfg.WGServerIP6)
 	}
 }
 
@@ -289,19 +299,19 @@ wireguard:
 func TestLoadConfigAllowedIPs(t *testing.T) {
 	path := writeConfigFile(t, `
 server:
-  port: "51821"
+  port: "`+testPort+`"
   allowed_ips:
-    - "10.0.0.0/24"
+    - "`+testWGSubnet4+`"
     - "192.168.1.1"
 auth:
-  api_key: "test-key"
+  api_key: "`+testAPIKey+`"
 wireguard:
   interface: "wg0"
-  subnet: "10.0.0.0/24"
-  server_ip: "10.0.0.1"
+  subnet: "`+testWGSubnet4+`"
+  server_ip: "`+testWGServerIP4+`"
   listen_port: 51820
   routing:
-    wan_interface: "eth0"
+    wan_interface: "`+testWANInterface+`"
 `)
 	t.Setenv("NODE_CONFIG", path)
 
@@ -312,9 +322,9 @@ wireguard:
 	if cfg.AllowedNets == nil || len(cfg.AllowedNets) != 2 {
 		t.Fatalf("expected 2 allowed nets, got %v", cfg.AllowedNets)
 	}
-	// 10.0.0.0/24
-	if !cfg.AllowedNets[0].Contains(net.ParseIP("10.0.0.1")) {
-		t.Fatal("expected first net to contain 10.0.0.1")
+	// testWGSubnet4
+	if !cfg.AllowedNets[0].Contains(net.ParseIP(testWGServerIP4)) {
+		t.Fatalf("expected first net to contain %s", testWGServerIP4)
 	}
 	// 192.168.1.1/32
 	if !cfg.AllowedNets[1].Contains(net.ParseIP("192.168.1.1")) {
@@ -372,5 +382,111 @@ wireguard:
 	}
 	if cfg.PeerStoreFile != "peers.json" {
 		t.Fatalf("expected peer_store_file peers.json, got %q", cfg.PeerStoreFile)
+	}
+}
+
+// ---------- subnet size validation ----------
+
+const subnetValidationBase = `
+server:
+  port: "51821"
+auth:
+  api_key: "test-key"
+wireguard:
+  interface: "wg0"
+  listen_port: 51820
+  routing:
+    wan_interface: "eth0"
+`
+
+func writeSubnetConfig(t *testing.T, subnet, subnet6 string) string {
+	t.Helper()
+	content := subnetValidationBase
+	if subnet != "" {
+		content += "  subnet: " + `"` + subnet + `"` + "\n"
+	}
+	if subnet6 != "" {
+		content += "  subnet6: " + `"` + subnet6 + `"` + "\n"
+	}
+	return writeConfigFile(t, content)
+}
+
+func TestLoadConfigSubnet32Rejected(t *testing.T) {
+	path := writeSubnetConfig(t, "10.0.0.1/32", "")
+	t.Setenv("NODE_CONFIG", path)
+	if _, err := LoadConfig(); err == nil {
+		t.Fatal("expected error for /32 IPv4 subnet (too small)")
+	}
+}
+
+func TestLoadConfigSubnet31Rejected(t *testing.T) {
+	path := writeSubnetConfig(t, "10.0.0.0/31", "")
+	t.Setenv("NODE_CONFIG", path)
+	if _, err := LoadConfig(); err == nil {
+		t.Fatal("expected error for /31 IPv4 subnet (too small)")
+	}
+}
+
+func TestLoadConfigSubnet30Valid(t *testing.T) {
+	path := writeSubnetConfig(t, "10.0.0.0/30", "")
+	t.Setenv("NODE_CONFIG", path)
+	if _, err := LoadConfig(); err != nil {
+		t.Fatalf("expected /30 IPv4 to be valid, got error: %v", err)
+	}
+}
+
+func TestLoadConfigSubnet128IPv6Rejected(t *testing.T) {
+	path := writeSubnetConfig(t, "", "fd00::1/128")
+	t.Setenv("NODE_CONFIG", path)
+	if _, err := LoadConfig(); err == nil {
+		t.Fatal("expected error for /128 IPv6 subnet (too small)")
+	}
+}
+
+func TestLoadConfigSubnet127IPv6Rejected(t *testing.T) {
+	path := writeSubnetConfig(t, "", "fd00::/127")
+	t.Setenv("NODE_CONFIG", path)
+	if _, err := LoadConfig(); err == nil {
+		t.Fatal("expected error for /127 IPv6 subnet (too small)")
+	}
+}
+
+func TestLoadConfigSubnet126IPv6Valid(t *testing.T) {
+	path := writeSubnetConfig(t, "", "fd00::/126")
+	t.Setenv("NODE_CONFIG", path)
+	if _, err := LoadConfig(); err != nil {
+		t.Fatalf("expected /126 IPv6 to be valid, got error: %v", err)
+	}
+}
+
+// ---------- validateWireGuardSubnet helpers ----------
+
+func TestValidateWireGuardSubnet4RejectsIPv6(t *testing.T) {
+	if err := validateWireGuardSubnet4("fd00::/64"); err == nil {
+		t.Fatal("expected error for IPv6 CIDR in validateWireGuardSubnet4")
+	}
+}
+
+func TestValidateWireGuardSubnet4PrefixTooLong(t *testing.T) {
+	if err := validateWireGuardSubnet4("10.0.0.0/31"); err == nil {
+		t.Fatal("expected error for /31 IPv4 subnet in validateWireGuardSubnet4")
+	}
+	if err := validateWireGuardSubnet4("10.0.0.0/30"); err != nil {
+		t.Fatalf("expected /30 IPv4 to be valid in validateWireGuardSubnet4, got %v", err)
+	}
+}
+
+func TestValidateWireGuardSubnet6RejectsIPv4(t *testing.T) {
+	if err := validateWireGuardSubnet6("10.0.0.0/24"); err == nil {
+		t.Fatal("expected error for IPv4 CIDR in validateWireGuardSubnet6")
+	}
+}
+
+func TestValidateWireGuardSubnet6PrefixTooLong(t *testing.T) {
+	if err := validateWireGuardSubnet6("fd00::/127"); err == nil {
+		t.Fatal("expected error for /127 IPv6 subnet in validateWireGuardSubnet6")
+	}
+	if err := validateWireGuardSubnet6("fd00::/126"); err != nil {
+		t.Fatalf("expected /126 IPv6 to be valid in validateWireGuardSubnet6, got %v", err)
 	}
 }

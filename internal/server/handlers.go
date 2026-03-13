@@ -4,6 +4,7 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/wg-keeper/wg-keeper-node/internal/wireguard"
@@ -39,7 +40,7 @@ type createPeerResponse struct {
 }
 
 func healthHandler(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{"status": "ok"})
+	c.JSON(http.StatusOK, HealthResponse{Status: "ok"})
 }
 
 // readinessHandler checks whether core WireGuard dependencies are healthy enough to serve traffic.
@@ -47,13 +48,13 @@ func healthHandler(c *gin.Context) {
 func readinessHandler(wgService statsProvider) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if _, err := wgService.Stats(); err != nil {
-			c.JSON(http.StatusServiceUnavailable, gin.H{
-				"status": "unhealthy",
-				"reason": "wireguard_unavailable",
+			c.JSON(http.StatusServiceUnavailable, ReadinessResponse{
+				Status: "unhealthy",
+				Reason: "wireguard_unavailable",
 			})
 			return
 		}
-		c.JSON(http.StatusOK, gin.H{"status": "ok"})
+		c.JSON(http.StatusOK, ReadinessResponse{Status: "ok"})
 	}
 }
 
@@ -142,7 +143,7 @@ func deletePeerHandler(wgService wgPeerService, debug bool) gin.HandlerFunc {
 
 		log.Printf("time=%s level=info msg=\"peer deleted\"",
 			time.Now().Format(time.RFC3339))
-		c.JSON(http.StatusOK, gin.H{"status": "ok"})
+		c.JSON(http.StatusOK, DeletePeerResponse{Status: "ok"})
 	}
 }
 
@@ -156,8 +157,61 @@ func listPeersHandler(wgService wgPeersListProvider, debug bool) gin.HandlerFunc
 		if list == nil {
 			list = []wireguard.PeerListItem{}
 		}
-		c.JSON(http.StatusOK, gin.H{"peers": list})
+		total := len(list)
+		offset, limit, paginated := applyPagination(list, c.Query("offset"), c.Query("limit"))
+		hasPrev := offset > 0 && total > 0
+		hasNext := offset+len(paginated) < total
+		var prevOffset, nextOffset *int
+		if hasPrev {
+			prev := offset - limit
+			if prev < 0 {
+				prev = 0
+			}
+			prevOffset = &prev
+		}
+		if hasNext {
+			next := offset + limit
+			nextOffset = &next
+		}
+
+		resp := Response[[]wireguard.PeerListItem]{
+			Data: paginated,
+			Meta: PaginationMeta{
+				Offset:     offset,
+				Limit:      limit,
+				TotalItems: total,
+				HasPrev:    hasPrev,
+				HasNext:    hasNext,
+				PrevOffset: prevOffset,
+				NextOffset: nextOffset,
+			},
+		}
+
+		c.JSON(http.StatusOK, resp)
 	}
+}
+
+// applyPagination slices the list according to optional offset and limit query params.
+// Invalid or missing params are silently ignored (offset defaults to 0, limit defaults to no limit).
+// It returns the resolved offset, limit, and the paginated slice.
+func applyPagination(list []wireguard.PeerListItem, offsetStr, limitStr string) (offset int, limit int, paginated []wireguard.PeerListItem) {
+	offset = 0
+	if n, err := strconv.Atoi(offsetStr); err == nil && n > 0 {
+		offset = n
+	}
+	if offset >= len(list) {
+		return offset, limit, []wireguard.PeerListItem{}
+	}
+	paginated = list[offset:]
+	if n, err := strconv.Atoi(limitStr); err == nil && n > 0 {
+		limit = n
+		if limit < len(paginated) {
+			paginated = paginated[:limit]
+		}
+	} else {
+		limit = len(paginated)
+	}
+	return offset, limit, paginated
 }
 
 func getPeerHandler(wgService wgPeerDetailProvider, debug bool) gin.HandlerFunc {
@@ -173,7 +227,7 @@ func getPeerHandler(wgService wgPeerDetailProvider, debug bool) gin.HandlerFunc 
 			writeError(c, status, message, reason, debug, err)
 			return
 		}
-		c.JSON(http.StatusOK, gin.H{"peer": detail})
+		c.JSON(http.StatusOK, PeerDetailResponse{Peer: detail})
 	}
 }
 
