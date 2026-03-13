@@ -157,7 +157,7 @@ func TestPossiblePeerCountTotalSubnet6Error(t *testing.T) {
 // ---------- resolveServerIP4 empty serverIP with bad subnet ----------
 
 func TestResolveServerIP4EmptyServerIPBadSubnet(t *testing.T) {
-	_, subnet31, _ := net.ParseCIDR("10.0.0.0/31")
+	_, subnet31, _ := net.ParseCIDR(testSubnet31)
 	_, err := resolveServerIP4(subnet31, "")
 	if err == nil {
 		t.Fatal("expected error when serverIP is empty and subnet is /31 (too small)")
@@ -172,7 +172,7 @@ func TestSetupSubnet6InvalidCIDR(t *testing.T) {
 
 func TestPossiblePeerCountTotalSubnet4Error(t *testing.T) {
 	// /31 subnet causes ipv4Range to fail ("too small")
-	_, subnet31, _ := net.ParseCIDR("10.0.0.0/31")
+	_, subnet31, _ := net.ParseCIDR(testSubnet31)
 	svc := &WireGuardService{subnet4: subnet31, store: NewPeerStore()}
 	_, err := svc.possiblePeerCountTotal()
 	if err == nil {

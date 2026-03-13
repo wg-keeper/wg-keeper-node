@@ -62,7 +62,7 @@ func TestNextIPv6Rollover(t *testing.T) {
 }
 
 func TestIPAfterIPv6(t *testing.T) {
-	a := net.ParseIP("fd00::2")
+	a := net.ParseIP(ipv6NextAddr)
 	b := net.ParseIP(ipv6TestAddr1)
 	if !ipAfterIPv6(a, b) {
 		t.Error("a should be after b")
@@ -151,8 +151,8 @@ func TestAllocateOneIPv6AllUsed(t *testing.T) {
 	// /126 has 4 addresses: network, 2 usable, broadcast → start=::1, end=::2
 	_, subnet, _ := net.ParseCIDR("fd00::/126")
 	used := map[string]struct{}{
-		"fd00::1": {},
-		"fd00::2": {},
+		"fd00::1":    {},
+		ipv6NextAddr: {},
 	}
 	_, err := allocateOneIPv6(subnet, used)
 	if err == nil {
