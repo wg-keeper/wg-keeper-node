@@ -9,6 +9,17 @@ import (
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 )
 
+const (
+	testSubnet4        = "10.0.0.0/24"
+	testServerIP4      = "10.0.0.1"
+	testSubnet6        = "fd00::/112"
+	testSubnet6Large   = "fd00::/64"
+	testSubnet6Small   = "fd00::/120"
+	testServerIP6      = "fd00::1"
+	testServerIP6InBig = "fd00::5"
+	testServerIP6Out   = "fd01::1"
+)
+
 // ---------- setupSubnet4 / setupSubnet6 ----------
 
 func TestSetupSubnet4EmptyReturnsNil(t *testing.T) {
@@ -19,15 +30,15 @@ func TestSetupSubnet4EmptyReturnsNil(t *testing.T) {
 }
 
 func TestSetupSubnet4ValidNoServerIP(t *testing.T) {
-	sub, ip, err := setupSubnet4("10.0.0.0/24", "")
+	sub, ip, err := setupSubnet4(testSubnet4, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if sub == nil || ip == nil {
 		t.Fatal("expected non-nil subnet and server IP")
 	}
-	if ip.String() != "10.0.0.1" {
-		t.Errorf("expected default server IP 10.0.0.1, got %s", ip.String())
+	if ip.String() != testServerIP4 {
+		t.Errorf("expected default server IP %s, got %s", testServerIP4, ip.String())
 	}
 }
 
@@ -38,13 +49,13 @@ func TestSetupSubnet4InvalidCIDR(t *testing.T) {
 }
 
 func TestSetupSubnet4IPv6Rejected(t *testing.T) {
-	if _, _, err := setupSubnet4("fd00::/64", ""); err == nil {
+	if _, _, err := setupSubnet4(testSubnet6Large, ""); err == nil {
 		t.Fatal("expected error for IPv6 passed as subnet4")
 	}
 }
 
 func TestSetupSubnet4ServerIPOutsideSubnet(t *testing.T) {
-	if _, _, err := setupSubnet4("10.0.0.0/24", "192.168.1.1"); err == nil {
+	if _, _, err := setupSubnet4(testSubnet4, "192.168.1.1"); err == nil {
 		t.Fatal("expected error for server IP outside subnet")
 	}
 }
@@ -57,7 +68,7 @@ func TestSetupSubnet6EmptyReturnsNil(t *testing.T) {
 }
 
 func TestSetupSubnet6ValidNoServerIP(t *testing.T) {
-	sub, ip, err := setupSubnet6("fd00::/112", "")
+	sub, ip, err := setupSubnet6(testSubnet6, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -67,7 +78,7 @@ func TestSetupSubnet6ValidNoServerIP(t *testing.T) {
 }
 
 func TestSetupSubnet6IPv4Rejected(t *testing.T) {
-	if _, _, err := setupSubnet6("10.0.0.0/24", ""); err == nil {
+	if _, _, err := setupSubnet6(testSubnet4, ""); err == nil {
 		t.Fatal("expected error for IPv4 passed as subnet6")
 	}
 }
@@ -75,13 +86,13 @@ func TestSetupSubnet6IPv4Rejected(t *testing.T) {
 // ---------- reconcileStoreWithSubnets ----------
 
 func TestReconcileStoreWithSubnetsPeerInsideKept(t *testing.T) {
-	_, subnet4, _ := net.ParseCIDR("10.0.0.0/24")
+	_, subnet4, _ := net.ParseCIDR(testSubnet4)
 	key, _ := wgtypes.GenerateKey()
 	svc := &WireGuardService{
 		client:     fakeWGClient{device: &wgtypes.Device{}},
 		deviceName: "wg0",
 		subnet4:    subnet4,
-		serverIP4:  net.ParseIP("10.0.0.1"),
+		serverIP4:  net.ParseIP(testServerIP4),
 		store:      NewPeerStore(),
 	}
 	svc.store.Set(PeerRecord{
@@ -101,13 +112,13 @@ func TestReconcileStoreWithSubnetsPeerInsideKept(t *testing.T) {
 }
 
 func TestReconcileStoreWithSubnetsOutsidePeerRemoved(t *testing.T) {
-	_, subnet4, _ := net.ParseCIDR("10.0.0.0/24")
+	_, subnet4, _ := net.ParseCIDR(testSubnet4)
 	key, _ := wgtypes.GenerateKey()
 	svc := &WireGuardService{
 		client:     fakeWGClient{device: &wgtypes.Device{}},
 		deviceName: "wg0",
 		subnet4:    subnet4,
-		serverIP4:  net.ParseIP("10.0.0.1"),
+		serverIP4:  net.ParseIP(testServerIP4),
 		store:      NewPeerStore(),
 	}
 	svc.store.Set(PeerRecord{
@@ -128,13 +139,13 @@ func TestReconcileStoreWithSubnetsOutsidePeerRemoved(t *testing.T) {
 
 func TestReconcileStoreWithSubnetsDeviceErrorLogged(t *testing.T) {
 	// ConfigureDevice fails: peer should still be removed from store.
-	_, subnet4, _ := net.ParseCIDR("10.0.0.0/24")
+	_, subnet4, _ := net.ParseCIDR(testSubnet4)
 	key, _ := wgtypes.GenerateKey()
 	svc := &WireGuardService{
 		client:     fakeWGClient{device: &wgtypes.Device{}, configureErr: errors.New("device busy")},
 		deviceName: "wg0",
 		subnet4:    subnet4,
-		serverIP4:  net.ParseIP("10.0.0.1"),
+		serverIP4:  net.ParseIP(testServerIP4),
 		store:      NewPeerStore(),
 	}
 	svc.store.Set(PeerRecord{
@@ -215,7 +226,7 @@ func TestReconcileStoreWithDeviceDeviceError(t *testing.T) {
 
 func TestPossiblePeerCountIPv6LargeSubnet(t *testing.T) {
 	// /64 has way more than 65536 addresses → capped at maxIPv6PeersReported
-	_, subnet, _ := net.ParseCIDR("fd00::/64")
+	_, subnet, _ := net.ParseCIDR(testSubnet6Large)
 	n, err := possiblePeerCountIPv6(subnet, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -227,8 +238,8 @@ func TestPossiblePeerCountIPv6LargeSubnet(t *testing.T) {
 
 func TestPossiblePeerCountIPv6LargeSubnetServerIPInRange(t *testing.T) {
 	// server IP is inside the large subnet → count decremented by 1
-	_, subnet, _ := net.ParseCIDR("fd00::/64")
-	serverIP := net.ParseIP("fd00::5")
+	_, subnet, _ := net.ParseCIDR(testSubnet6Large)
+	serverIP := net.ParseIP(testServerIP6InBig)
 	n, err := possiblePeerCountIPv6(subnet, serverIP)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -240,8 +251,8 @@ func TestPossiblePeerCountIPv6LargeSubnetServerIPInRange(t *testing.T) {
 
 func TestPossiblePeerCountIPv6LargeSubnetServerIPOutsideRange(t *testing.T) {
 	// server IP is outside the subnet → count stays at cap
-	_, subnet, _ := net.ParseCIDR("fd00::/64")
-	serverIP := net.ParseIP("fd01::1") // different prefix
+	_, subnet, _ := net.ParseCIDR(testSubnet6Large)
+	serverIP := net.ParseIP(testServerIP6Out) // different prefix
 	n, err := possiblePeerCountIPv6(subnet, serverIP)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -253,8 +264,8 @@ func TestPossiblePeerCountIPv6LargeSubnetServerIPOutsideRange(t *testing.T) {
 
 func TestPossiblePeerCountIPv6SmallSubnetWithServerIP(t *testing.T) {
 	// /120 (ones=120 ≥ 112) → iterates; server IP is excluded
-	_, subnet, _ := net.ParseCIDR("fd00::/120")
-	serverIP := net.ParseIP("fd00::1")
+	_, subnet, _ := net.ParseCIDR(testSubnet6Small)
+	serverIP := net.ParseIP(testServerIP6)
 	n, err := possiblePeerCountIPv6(subnet, serverIP)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -269,31 +280,31 @@ func TestPossiblePeerCountIPv6SmallSubnetWithServerIP(t *testing.T) {
 // ---------- possiblePeerCountTotal ----------
 
 func TestPossiblePeerCountTotalDualStack(t *testing.T) {
-	_, subnet4, _ := net.ParseCIDR("10.0.0.0/24")
-	_, subnet6, _ := net.ParseCIDR("fd00::/112")
+	_, subnet4, _ := net.ParseCIDR(testSubnet4)
+	_, subnet6, _ := net.ParseCIDR(testSubnet6)
 	svc := &WireGuardService{
 		subnet4:   subnet4,
-		serverIP4: net.ParseIP("10.0.0.1"),
+		serverIP4: net.ParseIP(testServerIP4),
 		subnet6:   subnet6,
-		serverIP6: net.ParseIP("fd00::1"),
+		serverIP6: net.ParseIP(testServerIP6),
 		store:     NewPeerStore(),
 	}
 	n, err := svc.possiblePeerCountTotal()
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	v4, _ := possiblePeerCount(subnet4, net.ParseIP("10.0.0.1"))
-	v6, _ := possiblePeerCountIPv6(subnet6, net.ParseIP("fd00::1"))
+	v4, _ := possiblePeerCount(subnet4, net.ParseIP(testServerIP4))
+	v6, _ := possiblePeerCountIPv6(subnet6, net.ParseIP(testServerIP6))
 	if n != v4+v6 {
 		t.Errorf("expected %d+%d=%d, got %d", v4, v6, v4+v6, n)
 	}
 }
 
 func TestPossiblePeerCountTotalIPv6Only(t *testing.T) {
-	_, subnet6, _ := net.ParseCIDR("fd00::/112")
+	_, subnet6, _ := net.ParseCIDR(testSubnet6)
 	svc := &WireGuardService{
 		subnet6:   subnet6,
-		serverIP6: net.ParseIP("fd00::1"),
+		serverIP6: net.ParseIP(testServerIP6),
 		store:     NewPeerStore(),
 	}
 	n, err := svc.possiblePeerCountTotal()
@@ -308,12 +319,12 @@ func TestPossiblePeerCountTotalIPv6Only(t *testing.T) {
 // ---------- allocateIPs ----------
 
 func TestAllocateIPsIPv6Only(t *testing.T) {
-	_, subnet6, _ := net.ParseCIDR("fd00::/112")
+	_, subnet6, _ := net.ParseCIDR(testSubnet6)
 	svc := &WireGuardService{
 		client:     fakeWGClient{device: &wgtypes.Device{}},
 		deviceName: "wg0",
 		subnet6:    subnet6,
-		serverIP6:  net.ParseIP("fd00::1"),
+		serverIP6:  net.ParseIP(testServerIP6),
 		store:      NewPeerStore(),
 	}
 	ips, err := svc.allocateIPs([]string{FamilyIPv6})
@@ -329,15 +340,15 @@ func TestAllocateIPsIPv6Only(t *testing.T) {
 }
 
 func TestAllocateIPsDualStack(t *testing.T) {
-	_, subnet4, _ := net.ParseCIDR("10.0.0.0/24")
-	_, subnet6, _ := net.ParseCIDR("fd00::/112")
+	_, subnet4, _ := net.ParseCIDR(testSubnet4)
+	_, subnet6, _ := net.ParseCIDR(testSubnet6)
 	svc := &WireGuardService{
 		client:     fakeWGClient{device: &wgtypes.Device{}},
 		deviceName: "wg0",
 		subnet4:    subnet4,
-		serverIP4:  net.ParseIP("10.0.0.1"),
+		serverIP4:  net.ParseIP(testServerIP4),
 		subnet6:    subnet6,
-		serverIP6:  net.ParseIP("fd00::1"),
+		serverIP6:  net.ParseIP(testServerIP6),
 		store:      NewPeerStore(),
 	}
 	ips, err := svc.allocateIPs([]string{FamilyIPv4, FamilyIPv6})
@@ -350,12 +361,12 @@ func TestAllocateIPsDualStack(t *testing.T) {
 }
 
 func TestAllocateIPsDeviceError(t *testing.T) {
-	_, subnet4, _ := net.ParseCIDR("10.0.0.0/24")
+	_, subnet4, _ := net.ParseCIDR(testSubnet4)
 	svc := &WireGuardService{
 		client:     fakeWGClient{err: errors.New("device error")},
 		deviceName: "wg0",
 		subnet4:    subnet4,
-		serverIP4:  net.ParseIP("10.0.0.1"),
+		serverIP4:  net.ParseIP(testServerIP4),
 		store:      NewPeerStore(),
 	}
 	_, err := svc.allocateIPs([]string{FamilyIPv4})
@@ -367,13 +378,13 @@ func TestAllocateIPsDeviceError(t *testing.T) {
 // ---------- rotatePeer via EnsurePeer ----------
 
 func TestEnsurePeerRotateDeviceError(t *testing.T) {
-	_, subnet4, _ := net.ParseCIDR("10.0.0.0/24")
+	_, subnet4, _ := net.ParseCIDR(testSubnet4)
 	key, _ := wgtypes.GenerateKey()
 	svc := &WireGuardService{
 		client:     fakeWGClient{device: &wgtypes.Device{}, configureErr: errors.New("device busy")},
 		deviceName: "wg0",
 		subnet4:    subnet4,
-		serverIP4:  net.ParseIP("10.0.0.1"),
+		serverIP4:  net.ParseIP(testServerIP4),
 		store:      NewPeerStore(),
 	}
 	svc.store.Set(PeerRecord{
@@ -390,13 +401,13 @@ func TestEnsurePeerRotateDeviceError(t *testing.T) {
 }
 
 func TestEnsurePeerRotateUpdatesExpiresAt(t *testing.T) {
-	_, subnet4, _ := net.ParseCIDR("10.0.0.0/24")
+	_, subnet4, _ := net.ParseCIDR(testSubnet4)
 	key, _ := wgtypes.GenerateKey()
 	svc := &WireGuardService{
 		client:     fakeWGClient{device: &wgtypes.Device{}},
 		deviceName: "wg0",
 		subnet4:    subnet4,
-		serverIP4:  net.ParseIP("10.0.0.1"),
+		serverIP4:  net.ParseIP(testServerIP4),
 		store:      NewPeerStore(),
 	}
 	svc.store.Set(PeerRecord{
@@ -420,16 +431,16 @@ func TestEnsurePeerRotateUpdatesExpiresAt(t *testing.T) {
 // ---------- Stats with IPv6 ----------
 
 func TestStatsBothSubnets(t *testing.T) {
-	_, subnet4, _ := net.ParseCIDR("10.0.0.0/24")
-	_, subnet6, _ := net.ParseCIDR("fd00::/112")
+	_, subnet4, _ := net.ParseCIDR(testSubnet4)
+	_, subnet6, _ := net.ParseCIDR(testSubnet6)
 	device := &wgtypes.Device{ListenPort: 51820}
 	svc := &WireGuardService{
 		client:     fakeWGClient{device: device},
 		deviceName: "wg0",
 		subnet4:    subnet4,
-		serverIP4:  net.ParseIP("10.0.0.1"),
+		serverIP4:  net.ParseIP(testServerIP4),
 		subnet6:    subnet6,
-		serverIP6:  net.ParseIP("fd00::1"),
+		serverIP6:  net.ParseIP(testServerIP6),
 		store:      NewPeerStore(),
 	}
 	stats, err := svc.Stats()
@@ -445,12 +456,12 @@ func TestStatsBothSubnets(t *testing.T) {
 }
 
 func TestStatsDeviceError(t *testing.T) {
-	_, subnet4, _ := net.ParseCIDR("10.0.0.0/24")
+	_, subnet4, _ := net.ParseCIDR(testSubnet4)
 	svc := &WireGuardService{
 		client:     fakeWGClient{err: errors.New("device error")},
 		deviceName: "wg0",
 		subnet4:    subnet4,
-		serverIP4:  net.ParseIP("10.0.0.1"),
+		serverIP4:  net.ParseIP(testServerIP4),
 		store:      NewPeerStore(),
 	}
 	_, err := svc.Stats()
@@ -474,7 +485,7 @@ func TestListPeersDeviceError(t *testing.T) {
 }
 
 func TestListPeersActivePeer(t *testing.T) {
-	_, subnet4, _ := net.ParseCIDR("10.0.0.0/24")
+	_, subnet4, _ := net.ParseCIDR(testSubnet4)
 	key, _ := wgtypes.GenerateKey()
 	recentHandshake := time.Now().Add(-30 * time.Second)
 	device := &wgtypes.Device{
@@ -486,7 +497,7 @@ func TestListPeersActivePeer(t *testing.T) {
 		client:     fakeWGClient{device: device},
 		deviceName: "wg0",
 		subnet4:    subnet4,
-		serverIP4:  net.ParseIP("10.0.0.1"),
+		serverIP4:  net.ParseIP(testServerIP4),
 		store:      NewPeerStore(),
 	}
 	svc.store.Set(PeerRecord{
@@ -591,13 +602,13 @@ func TestPeerRecordToListItemIPv6Family(t *testing.T) {
 // ---------- ValidateAddressFamilies ----------
 
 func TestValidateAddressFamiliesBothFamilies(t *testing.T) {
-	_, subnet4, _ := net.ParseCIDR("10.0.0.0/24")
-	_, subnet6, _ := net.ParseCIDR("fd00::/112")
+	_, subnet4, _ := net.ParseCIDR(testSubnet4)
+	_, subnet6, _ := net.ParseCIDR(testSubnet6)
 	svc := &WireGuardService{
 		subnet4:   subnet4,
-		serverIP4: net.ParseIP("10.0.0.1"),
+		serverIP4: net.ParseIP(testServerIP4),
 		subnet6:   subnet6,
-		serverIP6: net.ParseIP("fd00::1"),
+		serverIP6: net.ParseIP(testServerIP6),
 		store:     NewPeerStore(),
 	}
 	families, err := svc.ValidateAddressFamilies([]string{FamilyIPv4, FamilyIPv6})
@@ -610,10 +621,10 @@ func TestValidateAddressFamiliesBothFamilies(t *testing.T) {
 }
 
 func TestValidateAddressFamiliesIPv4OnlyNode(t *testing.T) {
-	_, subnet4, _ := net.ParseCIDR("10.0.0.0/24")
+	_, subnet4, _ := net.ParseCIDR(testSubnet4)
 	svc := &WireGuardService{
 		subnet4:   subnet4,
-		serverIP4: net.ParseIP("10.0.0.1"),
+		serverIP4: net.ParseIP(testServerIP4),
 		store:     NewPeerStore(),
 	}
 	// Requesting IPv6 from IPv4-only node
@@ -626,13 +637,13 @@ func TestValidateAddressFamiliesIPv4OnlyNode(t *testing.T) {
 // ---------- DeletePeer ----------
 
 func TestDeletePeerDeviceError(t *testing.T) {
-	_, subnet4, _ := net.ParseCIDR("10.0.0.0/24")
+	_, subnet4, _ := net.ParseCIDR(testSubnet4)
 	key, _ := wgtypes.GenerateKey()
 	svc := &WireGuardService{
 		client:     fakeWGClient{device: &wgtypes.Device{}, configureErr: errors.New("device busy")},
 		deviceName: "wg0",
 		subnet4:    subnet4,
-		serverIP4:  net.ParseIP("10.0.0.1"),
+		serverIP4:  net.ParseIP(testServerIP4),
 		store:      NewPeerStore(),
 	}
 	svc.store.Set(PeerRecord{
@@ -668,8 +679,8 @@ func TestServerInfoDeviceError(t *testing.T) {
 // ---------- NodeAddressFamilies ----------
 
 func TestNodeAddressFamiliesDualStack(t *testing.T) {
-	_, subnet4, _ := net.ParseCIDR("10.0.0.0/24")
-	_, subnet6, _ := net.ParseCIDR("fd00::/112")
+	_, subnet4, _ := net.ParseCIDR(testSubnet4)
+	_, subnet6, _ := net.ParseCIDR(testSubnet6)
 	svc := &WireGuardService{subnet4: subnet4, subnet6: subnet6}
 	families := svc.NodeAddressFamilies()
 	if len(families) != 2 {
