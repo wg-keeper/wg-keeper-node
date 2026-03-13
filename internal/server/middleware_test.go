@@ -149,3 +149,34 @@ func TestIPWhitelistMiddleware(t *testing.T) {
 		}
 	})
 }
+
+func TestIPWhitelistMiddlewareIPv6(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	_, ipv6Net, _ := net.ParseCIDR("fd00::/64")
+
+	t.Run("ipv6_client_in_whitelist_calls_next", func(t *testing.T) {
+		r := gin.New()
+		r.Use(ipWhitelistMiddleware([]*net.IPNet{ipv6Net}))
+		r.GET("/", func(c *gin.Context) { c.Status(http.StatusOK) })
+		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		req.RemoteAddr = "[fd00::1]:1234"
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Errorf(middlewareTestStatusOKFmt, rec.Code)
+		}
+	})
+
+	t.Run("ipv6_client_not_in_whitelist_returns_403", func(t *testing.T) {
+		r := gin.New()
+		r.Use(ipWhitelistMiddleware([]*net.IPNet{ipv6Net}))
+		r.GET("/", func(c *gin.Context) { c.Status(http.StatusOK) })
+		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		req.RemoteAddr = "[fe80::1]:1234"
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, req)
+		if rec.Code != http.StatusForbidden {
+			t.Errorf("status: got %d, want 403", rec.Code)
+		}
+	})
+}

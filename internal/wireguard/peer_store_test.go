@@ -6,19 +6,20 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 )
 
-const testPeerID = "peer-1"
+// peerIDTest = "peer-1" is defined in wireguard_test.go (same package)
 
 func TestStoredToRecordAllowedIPs(t *testing.T) {
 	key, _ := wgtypes.GenerateKey()
 	psk, _ := wgtypes.GenerateKey()
 	stored := peerRecordStored{
-		PeerID:       testPeerID,
+		PeerID:       peerIDTest,
 		PublicKey:    key.String(),
 		PresharedKey: psk.String(),
 		AllowedIPs:   []string{"10.0.0.3/32", "fd00::3/128"},
@@ -28,7 +29,7 @@ func TestStoredToRecordAllowedIPs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("storedToRecord: %v", err)
 	}
-	if rec.PeerID != testPeerID {
+	if rec.PeerID != peerIDTest {
 		t.Fatalf("peer_id: got %q", rec.PeerID)
 	}
 	if len(rec.AllowedIPs) != 2 {
@@ -162,7 +163,7 @@ func TestStoredToRecordEmptyAllowedIPs(t *testing.T) {
 	key, _ := wgtypes.GenerateKey()
 	psk, _ := wgtypes.GenerateKey()
 	stored := peerRecordStored{
-		PeerID:       testPeerID,
+		PeerID:       peerIDTest,
 		PublicKey:    key.String(),
 		PresharedKey: psk.String(),
 		AllowedIPs:   []string{},
@@ -188,7 +189,7 @@ func TestLoadFromDataNullRoot(t *testing.T) {
 func TestStoredToRecordEmptyPresharedKey(t *testing.T) {
 	key, _ := wgtypes.GenerateKey()
 	stored := peerRecordStored{
-		PeerID:       testPeerID,
+		PeerID:       peerIDTest,
 		PublicKey:    key.String(),
 		PresharedKey: "",
 		AllowedIPs:   []string{"10.0.0.1/32"},
@@ -205,7 +206,7 @@ func TestStoredToRecordEmptyPresharedKey(t *testing.T) {
 
 func TestStoredToRecordInvalidPublicKey(t *testing.T) {
 	stored := peerRecordStored{
-		PeerID:     testPeerID,
+		PeerID:     peerIDTest,
 		PublicKey:  "not-a-valid-key",
 		AllowedIPs: []string{"10.0.0.1/32"},
 	}
@@ -219,7 +220,7 @@ func TestStoredToRecordEmptyCIDRInAllowedIPs(t *testing.T) {
 	key, _ := wgtypes.GenerateKey()
 	psk, _ := wgtypes.GenerateKey()
 	stored := peerRecordStored{
-		PeerID:       testPeerID,
+		PeerID:       peerIDTest,
 		PublicKey:    key.String(),
 		PresharedKey: psk.String(),
 		AllowedIPs:   []string{"", "10.0.0.1/32"}, // empty entry should be skipped
@@ -238,7 +239,7 @@ func TestStoredToRecordInvalidCIDRInAllowedIPs(t *testing.T) {
 	key, _ := wgtypes.GenerateKey()
 	psk, _ := wgtypes.GenerateKey()
 	stored := peerRecordStored{
-		PeerID:       testPeerID,
+		PeerID:       peerIDTest,
 		PublicKey:    key.String(),
 		PresharedKey: psk.String(),
 		AllowedIPs:   []string{"not-a-cidr"},
@@ -254,7 +255,7 @@ func TestStoredToRecordAllCIDRsEmpty(t *testing.T) {
 	key, _ := wgtypes.GenerateKey()
 	psk, _ := wgtypes.GenerateKey()
 	stored := peerRecordStored{
-		PeerID:       testPeerID,
+		PeerID:       peerIDTest,
 		PublicKey:    key.String(),
 		PresharedKey: psk.String(),
 		AllowedIPs:   []string{"", ""},
@@ -283,6 +284,49 @@ func TestLoadFromFileInvalidJSON(t *testing.T) {
 	store := NewPeerStore()
 	if store.LoadFromFile(path) == nil {
 		t.Fatal("expected error for invalid JSON")
+	}
+}
+
+func TestPeerStoreConcurrentAccess(t *testing.T) {
+	store := NewPeerStore()
+	key, _ := wgtypes.GenerateKey()
+	psk, _ := wgtypes.GenerateKey()
+	rec := PeerRecord{
+		PeerID:       peerIDTest,
+		PublicKey:    key,
+		PresharedKey: psk,
+		AllowedIPs:   mustParseCIDRs(t, "10.0.0.1/32"),
+	}
+	var wg sync.WaitGroup
+	for i := 0; i < 50; i++ {
+		wg.Add(3)
+		go func() { defer wg.Done(); store.Set(rec) }()
+		go func() { defer wg.Done(); store.Get(peerIDTest) }()
+		go func() { defer wg.Done(); _ = store.List() }()
+	}
+	wg.Wait()
+}
+
+func TestSaveToFileUnwritablePath(t *testing.T) {
+	store := NewPeerStore()
+	err := store.SaveToFile("/nonexistent-dir-xyz/peers.json")
+	if err == nil {
+		t.Fatal("expected error when saving to unwritable path")
+	}
+}
+
+func TestLoadFromFileIfExistsPermissionError(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("running as root, cannot test permission errors")
+	}
+	dir := t.TempDir()
+	path := filepath.Join(dir, "peers.json")
+	if err := os.WriteFile(path, []byte(`[]`), 0o000); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	store := NewPeerStore()
+	if err := store.LoadFromFileIfExists(path); err == nil {
+		t.Fatal("expected error for permission-denied file (non-ErrNotExist)")
 	}
 }
 
