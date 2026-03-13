@@ -12,6 +12,7 @@ import (
 const (
 	testSubnet4        = "10.0.0.0/24"
 	testServerIP4      = "10.0.0.1"
+	testSubnet31       = "10.0.0.0/31"
 	testSubnet6        = "fd00::/112"
 	testSubnet6Large   = "fd00::/64"
 	testSubnet6Small   = "fd00::/120"
@@ -104,7 +105,7 @@ func TestIpv4RangeIPv6Subnet(t *testing.T) {
 
 func TestAllocateIPsIPv4RangeError(t *testing.T) {
 	// /31 causes ipv4Range to fail inside allocateOneIPv4
-	_, subnet31, _ := net.ParseCIDR("10.0.0.0/31")
+	_, subnet31, _ := net.ParseCIDR(testSubnet31)
 	svc := &WireGuardService{
 		client:     fakeWGClient{device: &wgtypes.Device{}},
 		deviceName: "wg0",

@@ -9,6 +9,7 @@ const (
 	subnet6TestCIDR   = "fd00::/120"
 	subnet6TestCIDR64 = "fd00::/64"
 	ipv6TestAddr1     = "fd00::1"
+	ipv6NextAddr      = "fd00::2"
 )
 
 func TestIPv6Range(t *testing.T) {
@@ -47,8 +48,8 @@ func TestNextIPv6(t *testing.T) {
 	if next == nil {
 		t.Fatal("next should be non-nil")
 	}
-	if next.String() != "fd00::2" {
-		t.Errorf("expected fd00::2, got %s", next.String())
+	if next.String() != ipv6NextAddr {
+		t.Errorf("expected %s, got %s", ipv6NextAddr, next.String())
 	}
 }
 
