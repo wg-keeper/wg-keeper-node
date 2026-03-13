@@ -458,3 +458,35 @@ func TestLoadConfigSubnet126IPv6Valid(t *testing.T) {
 		t.Fatalf("expected /126 IPv6 to be valid, got error: %v", err)
 	}
 }
+
+// ---------- validateWireGuardSubnet helpers ----------
+
+func TestValidateWireGuardSubnet4RejectsIPv6(t *testing.T) {
+	if err := validateWireGuardSubnet4("fd00::/64"); err == nil {
+		t.Fatal("expected error for IPv6 CIDR in validateWireGuardSubnet4")
+	}
+}
+
+func TestValidateWireGuardSubnet4PrefixTooLong(t *testing.T) {
+	if err := validateWireGuardSubnet4("10.0.0.0/31"); err == nil {
+		t.Fatal("expected error for /31 IPv4 subnet in validateWireGuardSubnet4")
+	}
+	if err := validateWireGuardSubnet4("10.0.0.0/30"); err != nil {
+		t.Fatalf("expected /30 IPv4 to be valid in validateWireGuardSubnet4, got %v", err)
+	}
+}
+
+func TestValidateWireGuardSubnet6RejectsIPv4(t *testing.T) {
+	if err := validateWireGuardSubnet6("10.0.0.0/24"); err == nil {
+		t.Fatal("expected error for IPv4 CIDR in validateWireGuardSubnet6")
+	}
+}
+
+func TestValidateWireGuardSubnet6PrefixTooLong(t *testing.T) {
+	if err := validateWireGuardSubnet6("fd00::/127"); err == nil {
+		t.Fatal("expected error for /127 IPv6 subnet in validateWireGuardSubnet6")
+	}
+	if err := validateWireGuardSubnet6("fd00::/126"); err != nil {
+		t.Fatalf("expected /126 IPv6 to be valid in validateWireGuardSubnet6, got %v", err)
+	}
+}
