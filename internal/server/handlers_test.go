@@ -516,7 +516,7 @@ func makePeerList(n int) []wireguard.PeerListItem {
 	return peers
 }
 
-func listPeersWithPagination(t *testing.T, peers []wireguard.PeerListItem, query string) (list []interface{}, total float64) {
+func listPeersWithPagination(t *testing.T, peers []wireguard.PeerListItem, query string) (list []interface{}, total float64, meta map[string]interface{}) {
 	t.Helper()
 	router := newTestRouter()
 	router.GET(pathPeers, apiKeyMiddleware(testAPIKey), listPeersHandler(mockWGService{
@@ -529,78 +529,116 @@ func listPeersWithPagination(t *testing.T, peers []wireguard.PeerListItem, query
 	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
 		t.Fatalf(msgInvalidJSON, err)
 	}
-	rawPeers, _ := payload["peers"].([]interface{})
-	total, _ = payload["total"].(float64)
-	return rawPeers, total
+	rawPeers, _ := payload["data"].([]interface{})
+	meta, _ = payload["meta"].(map[string]interface{})
+	if meta != nil {
+		if v, ok := meta["totalItems"].(float64); ok {
+			total = v
+		}
+	}
+	return rawPeers, total, meta
 }
 
 func TestListPeersResponseIncludesTotal(t *testing.T) {
 	peers := makePeerList(5)
-	list, total := listPeersWithPagination(t, peers, "")
+	list, total, meta := listPeersWithPagination(t, peers, "")
 	if total != 5 {
 		t.Errorf("expected total=5, got %v", total)
 	}
 	if len(list) != 5 {
 		t.Errorf("expected 5 peers returned, got %d", len(list))
 	}
+	if meta == nil {
+		t.Fatal("expected meta object, got nil")
+	}
+	if offset, _ := meta["offset"].(float64); offset != 0 {
+		t.Errorf("expected offset=0, got %v", offset)
+	}
 }
 
 func TestListPeersLimit(t *testing.T) {
 	peers := makePeerList(10)
-	list, total := listPeersWithPagination(t, peers, "?limit=3")
+	list, total, meta := listPeersWithPagination(t, peers, "?limit=3")
 	if total != 10 {
 		t.Errorf(msgExpectedTotal10, total)
 	}
 	if len(list) != 3 {
 		t.Errorf("expected 3 peers with limit=3, got %d", len(list))
 	}
+	if limit, _ := meta["limit"].(float64); limit != 3 {
+		t.Errorf("expected limit=3 in meta, got %v", limit)
+	}
+	if hasNext, _ := meta["hasNext"].(bool); !hasNext {
+		t.Errorf("expected hasNext=true for 10 total and limit=3")
+	}
 }
 
 func TestListPeersOffset(t *testing.T) {
 	peers := makePeerList(10)
-	list, total := listPeersWithPagination(t, peers, "?offset=7")
+	list, total, meta := listPeersWithPagination(t, peers, "?offset=7")
 	if total != 10 {
 		t.Errorf(msgExpectedTotal10, total)
 	}
 	if len(list) != 3 {
 		t.Errorf("expected 3 peers after offset=7 of 10, got %d", len(list))
 	}
+	if offset, _ := meta["offset"].(float64); offset != 7 {
+		t.Errorf("expected offset=7 in meta, got %v", offset)
+	}
+	if hasPrev, _ := meta["hasPrev"].(bool); !hasPrev {
+		t.Errorf("expected hasPrev=true when offset>0")
+	}
 }
 
 func TestListPeersOffsetAndLimit(t *testing.T) {
 	peers := makePeerList(10)
-	list, total := listPeersWithPagination(t, peers, "?offset=2&limit=4")
+	list, total, meta := listPeersWithPagination(t, peers, "?offset=2&limit=4")
 	if total != 10 {
 		t.Errorf(msgExpectedTotal10, total)
 	}
 	if len(list) != 4 {
 		t.Errorf("expected 4 peers (offset=2, limit=4), got %d", len(list))
 	}
+	if offset, _ := meta["offset"].(float64); offset != 2 {
+		t.Errorf("expected offset=2 in meta, got %v", offset)
+	}
+	if limit, _ := meta["limit"].(float64); limit != 4 {
+		t.Errorf("expected limit=4 in meta, got %v", limit)
+	}
 }
 
 func TestListPeersOffsetBeyondTotal(t *testing.T) {
 	peers := makePeerList(5)
-	list, total := listPeersWithPagination(t, peers, "?offset=100")
+	list, total, meta := listPeersWithPagination(t, peers, "?offset=100")
 	if total != 5 {
 		t.Errorf("expected total=5, got %v", total)
 	}
 	if len(list) != 0 {
 		t.Errorf("expected 0 peers when offset > total, got %d", len(list))
 	}
+	if hasNext, _ := meta["hasNext"].(bool); hasNext {
+		t.Errorf("expected hasNext=false when page is empty")
+	}
 }
 
 func TestListPeersInvalidParamsIgnored(t *testing.T) {
 	peers := makePeerList(5)
-	list, _ := listPeersWithPagination(t, peers, "?offset=abc&limit=xyz")
+	list, _, meta := listPeersWithPagination(t, peers, "?offset=abc&limit=xyz")
 	if len(list) != 5 {
 		t.Errorf("expected all 5 peers with invalid params, got %d", len(list))
+	}
+	if offset, _ := meta["offset"].(float64); offset != 0 {
+		t.Errorf("expected offset=0 for invalid params, got %v", offset)
 	}
 }
 
 func TestListPeersLimitLargerThanTotal(t *testing.T) {
 	peers := makePeerList(3)
-	list, _ := listPeersWithPagination(t, peers, "?limit=100")
+	list, _, meta := listPeersWithPagination(t, peers, "?limit=100")
 	if len(list) != 3 {
 		t.Errorf("expected 3 peers when limit > total, got %d", len(list))
+	}
+	if limit, _ := meta["limit"].(float64); limit != 3 {
+		t.Errorf("expected limit=3 (clamped to page size), got %v", limit)
 	}
 }
