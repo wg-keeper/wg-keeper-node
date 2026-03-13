@@ -72,6 +72,12 @@ func TestIsDebugEnabled(t *testing.T) {
 	}
 }
 
+func TestSetupGinMode(t *testing.T) {
+	// just verify it doesn't panic in both modes
+	setupGinMode(false)
+	setupGinMode(true)
+}
+
 func TestHandleInitNoArgs(t *testing.T) {
 	cfg := config.Config{}
 	handled, err := handleInit(cfg, []string{testBinName})

@@ -204,6 +204,124 @@ func TestCheckExistingConfig(t *testing.T) {
 	})
 }
 
+func TestAddressLineFromSubnet4ServerIPOutsideSubnet(t *testing.T) {
+	_, err := addressLineFromSubnet4(subnetTestCIDR, "192.168.1.1")
+	if err == nil {
+		t.Error("expected error for server IP outside IPv4 subnet")
+	}
+}
+
+func TestAddressLineFromSubnet6InvalidCIDR(t *testing.T) {
+	_, err := addressLineFromSubnet6("not-a-cidr", "")
+	if err == nil {
+		t.Error("expected error for invalid CIDR in addressLineFromSubnet6")
+	}
+}
+
+func TestBuildAddressLinesSubnet4Error(t *testing.T) {
+	// IPv6 CIDR passed as WGSubnet — addressLineFromSubnet4 will reject it
+	cfg := config.Config{WGSubnet: subnet6TestCIDR64}
+	_, err := buildAddressLines(cfg)
+	if err == nil {
+		t.Error("expected error when WGSubnet is an IPv6 CIDR")
+	}
+}
+
+func TestBuildAddressLinesSubnet6Error(t *testing.T) {
+	// IPv4 CIDR passed as WGSubnet6 — addressLineFromSubnet6 will reject it
+	cfg := config.Config{WGSubnet6: subnetTestCIDR}
+	_, err := buildAddressLines(cfg)
+	if err == nil {
+		t.Error("expected error when WGSubnet6 is an IPv4 CIDR")
+	}
+}
+
+func TestEnsureWireGuardConfigNew(t *testing.T) {
+	dir := t.TempDir()
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	cfg := config.Config{
+		WGInterface:  "wgtest",
+		WGSubnet:     subnetTestCIDR,
+		WGServerIP:   ipServerTest,
+		WGListenPort: 51820,
+		WANInterface: "eth0",
+	}
+	path, err := EnsureWireGuardConfig(cfg)
+	if err != nil {
+		t.Fatalf("EnsureWireGuardConfig: %v", err)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Errorf("config file should exist after creation: %v", err)
+	}
+}
+
+func TestEnsureWireGuardConfigExisting(t *testing.T) {
+	dir := t.TempDir()
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	// Pre-create the config so EnsureWireGuardConfig returns the existing path
+	wgDir := filepath.Join(dir, "wireguard")
+	if err := os.MkdirAll(wgDir, 0o700); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	existingPath := filepath.Join(wgDir, "wgtest.conf")
+	if err := os.WriteFile(existingPath, []byte("[Interface]\n"), 0o600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	cfg := config.Config{WGInterface: "wgtest", WGSubnet: subnetTestCIDR, WGListenPort: 51820}
+	path, err := EnsureWireGuardConfig(cfg)
+	if err != nil {
+		t.Fatalf("EnsureWireGuardConfig(existing): %v", err)
+	}
+	// Verify the returned path still points to the original file
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read returned path: %v", err)
+	}
+	if string(data) != "[Interface]\n" {
+		t.Errorf("expected original file content, got %q", data)
+	}
+}
+
+func TestBuildAddressLinesBothSubnets(t *testing.T) {
+	cfg := config.Config{
+		WGSubnet:    subnetTestCIDR,
+		WGServerIP:  ipServerTest,
+		WGSubnet6:   subnet6TestCIDR64,
+		WGServerIP6: ipv6TestAddr1,
+	}
+	lines, err := buildAddressLines(cfg)
+	if err != nil {
+		t.Fatalf(msgUnexpectedError, err)
+	}
+	if len(lines) != 2 {
+		t.Fatalf("expected 2 address lines, got %d: %v", len(lines), lines)
+	}
+}
+
+func TestAddressLineFromSubnet6ServerIPOutsideSubnet(t *testing.T) {
+	_, err := addressLineFromSubnet6(subnet6TestCIDR64, "fd01::1")
+	if err == nil {
+		t.Error("expected error for server IP outside IPv6 subnet")
+	}
+}
+
 func TestDefaultConfigPath(t *testing.T) {
 	path := defaultConfigPath("")
 	if !strings.Contains(path, "wg0") {

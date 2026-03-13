@@ -459,6 +459,64 @@ func TestLoadConfigSubnet126IPv6Valid(t *testing.T) {
 	}
 }
 
+// ---------- Addr ----------
+
+func TestConfigAddr(t *testing.T) {
+	cfg := Config{Port: 8080}
+	got := cfg.Addr()
+	want := "0.0.0.0:8080"
+	if got != want {
+		t.Fatalf("Addr(): got %q, want %q", got, want)
+	}
+}
+
+// ---------- LoadConfig error paths ----------
+
+func TestLoadConfigFileNotFound(t *testing.T) {
+	t.Setenv("NODE_CONFIG", "/tmp/wg-keeper-test-nonexistent-config.yaml")
+	if _, err := LoadConfig(); err == nil {
+		t.Fatal("expected error for missing config file")
+	}
+}
+
+func TestLoadConfigPathIsDirectory(t *testing.T) {
+	t.Setenv("NODE_CONFIG", t.TempDir())
+	if _, err := LoadConfig(); err == nil {
+		t.Fatal("expected error when config path is a directory")
+	}
+}
+
+func TestLoadConfigInvalidYAML(t *testing.T) {
+	path := writeConfigFile(t, "{broken yaml: [")
+	t.Setenv("NODE_CONFIG", path)
+	if _, err := LoadConfig(); err == nil {
+		t.Fatal("expected error for invalid YAML")
+	}
+}
+
+// ---------- parseOneAllowedIP ----------
+
+func TestParseOneAllowedIPIPv6Address(t *testing.T) {
+	ipNet, err := parseOneAllowedIP("field", 0, "::1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if ipNet == nil {
+		t.Fatal("expected non-nil IPNet")
+	}
+	ones, bits := ipNet.Mask.Size()
+	if ones != 128 || bits != 128 {
+		t.Fatalf("expected /128 mask, got /%d", ones)
+	}
+}
+
+func TestParseOneAllowedIPInvalidCIDR(t *testing.T) {
+	_, err := parseOneAllowedIP("field", 0, "10.0.0.0/33")
+	if err == nil {
+		t.Fatal("expected error for invalid CIDR")
+	}
+}
+
 // ---------- validateWireGuardSubnet helpers ----------
 
 func TestValidateWireGuardSubnet4RejectsIPv6(t *testing.T) {

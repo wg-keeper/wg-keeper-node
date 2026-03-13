@@ -137,6 +137,28 @@ func TestPossiblePeerCountIPv6(t *testing.T) {
 	}
 }
 
+func TestIpv4RangeTooSmall(t *testing.T) {
+	// /31 has only 2 addresses (network + broadcast), no usable host range
+	_, subnet31, _ := net.ParseCIDR("10.0.0.0/31")
+	_, _, err := ipv4Range(subnet31)
+	if err == nil {
+		t.Fatal("expected error for /31 subnet (too small)")
+	}
+}
+
+func TestAllocateOneIPv6AllUsed(t *testing.T) {
+	// /126 has 4 addresses: network, 2 usable, broadcast → start=::1, end=::2
+	_, subnet, _ := net.ParseCIDR("fd00::/126")
+	used := map[string]struct{}{
+		"fd00::1": {},
+		"fd00::2": {},
+	}
+	_, err := allocateOneIPv6(subnet, used)
+	if err == nil {
+		t.Fatal("expected ErrNoAvailableIP when all IPs are used")
+	}
+}
+
 func TestAppendIfNotPresent(t *testing.T) {
 	slice := []string{"a", "b"}
 	got := appendIfNotPresent(slice, "c")
