@@ -397,13 +397,14 @@ func TestListPeersSuccess(t *testing.T) {
 	rec := performRequest(t, router, http.MethodGet, pathPeers, nil, testAPIKey)
 	assertStatus(t, rec, http.StatusOK)
 	var payload struct {
-		Peers []wireguard.PeerListItem `json:"peers"`
+		Data []wireguard.PeerListItem `json:"data"`
+		Meta PaginationMeta           `json:"meta"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
 		t.Fatalf(msgInvalidJSON, err)
 	}
-	if len(payload.Peers) != 1 || payload.Peers[0].PeerID != "p1" {
-		t.Fatalf("expected one peer p1, got %v", payload.Peers)
+	if len(payload.Data) != 1 || payload.Data[0].PeerID != "p1" {
+		t.Fatalf("expected one peer p1, got %v", payload.Data)
 	}
 }
 
@@ -418,13 +419,14 @@ func TestListPeersNilListReturnsEmpty(t *testing.T) {
 	rec := performRequest(t, router, http.MethodGet, pathPeers, nil, testAPIKey)
 	assertStatus(t, rec, http.StatusOK)
 	var payload struct {
-		Peers []wireguard.PeerListItem `json:"peers"`
+		Data []wireguard.PeerListItem `json:"data"`
+		Meta PaginationMeta           `json:"meta"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
 		t.Fatalf(msgInvalidJSON, err)
 	}
-	if payload.Peers == nil || len(payload.Peers) != 0 {
-		t.Fatalf("expected empty peers array, got %v", payload.Peers)
+	if payload.Data == nil || len(payload.Data) != 0 {
+		t.Fatalf("expected empty peers array, got %v", payload.Data)
 	}
 }
 
@@ -638,7 +640,7 @@ func TestListPeersLimitLargerThanTotal(t *testing.T) {
 	if len(list) != 3 {
 		t.Errorf("expected 3 peers when limit > total, got %d", len(list))
 	}
-	if limit, _ := meta["limit"].(float64); limit != 3 {
-		t.Errorf("expected limit=3 (clamped to page size), got %v", limit)
+	if limit, _ := meta["limit"].(float64); limit != 100 {
+		t.Errorf("expected limit=100 (requested), got %v", limit)
 	}
 }
