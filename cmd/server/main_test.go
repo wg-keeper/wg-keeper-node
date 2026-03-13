@@ -73,6 +73,7 @@ func TestIsDebugEnabled(t *testing.T) {
 }
 
 func TestSetupGinMode(t *testing.T) {
+	t.Helper()
 	// just verify it doesn't panic in both modes
 	setupGinMode(false)
 	setupGinMode(true)
