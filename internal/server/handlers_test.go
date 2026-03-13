@@ -24,6 +24,7 @@ const (
 	testAPIKey              = "key"
 	createPeerBody          = `{"peerId":"550e8400-e29b-41d4-a716-446655440000"}`
 	msgInvalidJSON          = "invalid json: %v"
+	msgExpectedTotal10      = "expected total=10, got %v"
 	errMsgDeviceUnavailable = "device unavailable"
 )
 
@@ -548,7 +549,7 @@ func TestListPeersLimit(t *testing.T) {
 	peers := makePeerList(10)
 	list, total := listPeersWithPagination(t, peers, "?limit=3")
 	if total != 10 {
-		t.Errorf("expected total=10, got %v", total)
+		t.Errorf(msgExpectedTotal10, total)
 	}
 	if len(list) != 3 {
 		t.Errorf("expected 3 peers with limit=3, got %d", len(list))
@@ -559,7 +560,7 @@ func TestListPeersOffset(t *testing.T) {
 	peers := makePeerList(10)
 	list, total := listPeersWithPagination(t, peers, "?offset=7")
 	if total != 10 {
-		t.Errorf("expected total=10, got %v", total)
+		t.Errorf(msgExpectedTotal10, total)
 	}
 	if len(list) != 3 {
 		t.Errorf("expected 3 peers after offset=7 of 10, got %d", len(list))
@@ -570,7 +571,7 @@ func TestListPeersOffsetAndLimit(t *testing.T) {
 	peers := makePeerList(10)
 	list, total := listPeersWithPagination(t, peers, "?offset=2&limit=4")
 	if total != 10 {
-		t.Errorf("expected total=10, got %v", total)
+		t.Errorf(msgExpectedTotal10, total)
 	}
 	if len(list) != 4 {
 		t.Errorf("expected 4 peers (offset=2, limit=4), got %d", len(list))

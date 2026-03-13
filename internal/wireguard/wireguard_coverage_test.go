@@ -18,6 +18,16 @@ const (
 	testServerIP6      = "fd00::1"
 	testServerIP6InBig = "fd00::5"
 	testServerIP6Out   = "fd01::1"
+
+	testPeerIP4              = "10.0.0.2/32"
+	testOutsidePeerID        = "outside-peer"
+	testErrUnexpectedFormat  = "unexpected error: %v"
+	testErrDeviceBusyMessage = "device busy"
+	testErrDeviceError       = "device error"
+	testErrDeviceOffline     = "device offline"
+	testExpiryPeerID         = "expiry-peer"
+	testDelFailPeerID        = "del-fail"
+	msgExpectedTwoFamilies   = "expected 2 families, got %v"
 )
 
 // ---------- setupSubnet4 / setupSubnet6 ----------
@@ -32,7 +42,7 @@ func TestSetupSubnet4EmptyReturnsNil(t *testing.T) {
 func TestSetupSubnet4ValidNoServerIP(t *testing.T) {
 	sub, ip, err := setupSubnet4(testSubnet4, "")
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		t.Fatalf(testErrUnexpectedFormat, err)
 	}
 	if sub == nil || ip == nil {
 		t.Fatal("expected non-nil subnet and server IP")
@@ -70,7 +80,7 @@ func TestSetupSubnet6EmptyReturnsNil(t *testing.T) {
 func TestSetupSubnet6ValidNoServerIP(t *testing.T) {
 	sub, ip, err := setupSubnet6(testSubnet6, "")
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		t.Fatalf(testErrUnexpectedFormat, err)
 	}
 	if sub == nil || ip == nil {
 		t.Fatal("expected non-nil subnet and server IP")
@@ -99,7 +109,7 @@ func TestReconcileStoreWithSubnetsPeerInsideKept(t *testing.T) {
 		PeerID:       "inside-peer",
 		PublicKey:    key,
 		PresharedKey: wgtypes.Key{},
-		AllowedIPs:   mustParseCIDRs(t, "10.0.0.2/32"),
+		AllowedIPs:   mustParseCIDRs(t, testPeerIP4),
 	})
 
 	changed := svc.reconcileStoreWithSubnets()
@@ -122,7 +132,7 @@ func TestReconcileStoreWithSubnetsOutsidePeerRemoved(t *testing.T) {
 		store:      NewPeerStore(),
 	}
 	svc.store.Set(PeerRecord{
-		PeerID:       "outside-peer",
+		PeerID:       testOutsidePeerID,
 		PublicKey:    key,
 		PresharedKey: wgtypes.Key{},
 		AllowedIPs:   mustParseCIDRs(t, "192.168.1.5/32"),
@@ -132,7 +142,7 @@ func TestReconcileStoreWithSubnetsOutsidePeerRemoved(t *testing.T) {
 	if !changed {
 		t.Error("expected changed=true: peer is outside subnet")
 	}
-	if _, ok := svc.store.Get("outside-peer"); ok {
+	if _, ok := svc.store.Get(testOutsidePeerID); ok {
 		t.Error("peer should have been removed from store")
 	}
 }
@@ -149,7 +159,7 @@ func TestReconcileStoreWithSubnetsDeviceErrorLogged(t *testing.T) {
 		store:      NewPeerStore(),
 	}
 	svc.store.Set(PeerRecord{
-		PeerID:       "outside-peer",
+		PeerID:       testOutsidePeerID,
 		PublicKey:    key,
 		PresharedKey: wgtypes.Key{},
 		AllowedIPs:   mustParseCIDRs(t, "192.168.1.5/32"),
@@ -159,7 +169,7 @@ func TestReconcileStoreWithSubnetsDeviceErrorLogged(t *testing.T) {
 	if !changed {
 		t.Error("expected changed=true")
 	}
-	if _, ok := svc.store.Get("outside-peer"); ok {
+	if _, ok := svc.store.Get(testOutsidePeerID); ok {
 		t.Error("peer should be removed from store even when device fails")
 	}
 }
@@ -179,7 +189,7 @@ func TestReconcileStoreWithDeviceMissingPeerAdded(t *testing.T) {
 		PeerID:       "missing-peer",
 		PublicKey:    key,
 		PresharedKey: psk,
-		AllowedIPs:   mustParseCIDRs(t, "10.0.0.2/32"),
+		AllowedIPs:   mustParseCIDRs(t, testPeerIP4),
 	})
 
 	if err := svc.reconcileStoreWithDevice(); err != nil {
@@ -203,7 +213,7 @@ func TestReconcileStoreWithDevicePresentPeerSkipped(t *testing.T) {
 		PeerID:       "present-peer",
 		PublicKey:    key,
 		PresharedKey: psk,
-		AllowedIPs:   mustParseCIDRs(t, "10.0.0.2/32"),
+		AllowedIPs:   mustParseCIDRs(t, testPeerIP4),
 	})
 
 	if err := svc.reconcileStoreWithDevice(); err != nil {
@@ -229,7 +239,7 @@ func TestPossiblePeerCountIPv6LargeSubnet(t *testing.T) {
 	_, subnet, _ := net.ParseCIDR(testSubnet6Large)
 	n, err := possiblePeerCountIPv6(subnet, nil)
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		t.Fatalf(testErrUnexpectedFormat, err)
 	}
 	if n != maxIPv6PeersReported {
 		t.Errorf("expected cap of %d, got %d", maxIPv6PeersReported, n)
@@ -242,7 +252,7 @@ func TestPossiblePeerCountIPv6LargeSubnetServerIPInRange(t *testing.T) {
 	serverIP := net.ParseIP(testServerIP6InBig)
 	n, err := possiblePeerCountIPv6(subnet, serverIP)
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		t.Fatalf(testErrUnexpectedFormat, err)
 	}
 	if n != maxIPv6PeersReported-1 {
 		t.Errorf("expected %d (server IP deducted), got %d", maxIPv6PeersReported-1, n)
@@ -255,7 +265,7 @@ func TestPossiblePeerCountIPv6LargeSubnetServerIPOutsideRange(t *testing.T) {
 	serverIP := net.ParseIP(testServerIP6Out) // different prefix
 	n, err := possiblePeerCountIPv6(subnet, serverIP)
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		t.Fatalf(testErrUnexpectedFormat, err)
 	}
 	if n != maxIPv6PeersReported {
 		t.Errorf("expected cap of %d, got %d", maxIPv6PeersReported, n)
@@ -268,7 +278,7 @@ func TestPossiblePeerCountIPv6SmallSubnetWithServerIP(t *testing.T) {
 	serverIP := net.ParseIP(testServerIP6)
 	n, err := possiblePeerCountIPv6(subnet, serverIP)
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		t.Fatalf(testErrUnexpectedFormat, err)
 	}
 	// /120 = 256 addresses, 2 reserved (start/end), server excluded → 253
 	withoutServer, _ := possiblePeerCountIPv6(subnet, nil)
@@ -291,7 +301,7 @@ func TestPossiblePeerCountTotalDualStack(t *testing.T) {
 	}
 	n, err := svc.possiblePeerCountTotal()
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		t.Fatalf(testErrUnexpectedFormat, err)
 	}
 	v4, _ := possiblePeerCount(subnet4, net.ParseIP(testServerIP4))
 	v6, _ := possiblePeerCountIPv6(subnet6, net.ParseIP(testServerIP6))
@@ -309,7 +319,7 @@ func TestPossiblePeerCountTotalIPv6Only(t *testing.T) {
 	}
 	n, err := svc.possiblePeerCountTotal()
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		t.Fatalf(testErrUnexpectedFormat, err)
 	}
 	if n <= 0 {
 		t.Errorf("expected positive count, got %d", n)
@@ -329,7 +339,7 @@ func TestAllocateIPsIPv6Only(t *testing.T) {
 	}
 	ips, err := svc.allocateIPs([]string{FamilyIPv6})
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		t.Fatalf(testErrUnexpectedFormat, err)
 	}
 	if len(ips) != 1 {
 		t.Fatalf("expected 1 IP, got %d", len(ips))
@@ -353,7 +363,7 @@ func TestAllocateIPsDualStack(t *testing.T) {
 	}
 	ips, err := svc.allocateIPs([]string{FamilyIPv4, FamilyIPv6})
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		t.Fatalf(testErrUnexpectedFormat, err)
 	}
 	if len(ips) != 2 {
 		t.Fatalf("expected 2 IPs (one per family), got %d", len(ips))
@@ -363,7 +373,7 @@ func TestAllocateIPsDualStack(t *testing.T) {
 func TestAllocateIPsDeviceError(t *testing.T) {
 	_, subnet4, _ := net.ParseCIDR(testSubnet4)
 	svc := &WireGuardService{
-		client:     fakeWGClient{err: errors.New("device error")},
+		client:     fakeWGClient{err: errors.New(testErrDeviceError)},
 		deviceName: "wg0",
 		subnet4:    subnet4,
 		serverIP4:  net.ParseIP(testServerIP4),
@@ -381,7 +391,7 @@ func TestEnsurePeerRotateDeviceError(t *testing.T) {
 	_, subnet4, _ := net.ParseCIDR(testSubnet4)
 	key, _ := wgtypes.GenerateKey()
 	svc := &WireGuardService{
-		client:     fakeWGClient{device: &wgtypes.Device{}, configureErr: errors.New("device busy")},
+		client:     fakeWGClient{device: &wgtypes.Device{}, configureErr: errors.New(testErrDeviceBusyMessage)},
 		deviceName: "wg0",
 		subnet4:    subnet4,
 		serverIP4:  net.ParseIP(testServerIP4),
@@ -391,7 +401,7 @@ func TestEnsurePeerRotateDeviceError(t *testing.T) {
 		PeerID:       "rotate-fail",
 		PublicKey:    key,
 		PresharedKey: wgtypes.Key{},
-		AllowedIPs:   mustParseCIDRs(t, "10.0.0.2/32"),
+		AllowedIPs:   mustParseCIDRs(t, testPeerIP4),
 	})
 
 	_, err := svc.EnsurePeer("rotate-fail", nil, nil)
@@ -411,18 +421,18 @@ func TestEnsurePeerRotateUpdatesExpiresAt(t *testing.T) {
 		store:      NewPeerStore(),
 	}
 	svc.store.Set(PeerRecord{
-		PeerID:       "expiry-peer",
+		PeerID:       testExpiryPeerID,
 		PublicKey:    key,
 		PresharedKey: wgtypes.Key{},
-		AllowedIPs:   mustParseCIDRs(t, "10.0.0.2/32"),
+		AllowedIPs:   mustParseCIDRs(t, testPeerIP4),
 	})
 
 	future := time.Now().UTC().Add(time.Hour)
-	_, err := svc.EnsurePeer("expiry-peer", &future, nil)
+	_, err := svc.EnsurePeer(testExpiryPeerID, &future, nil)
 	if err != nil {
 		t.Fatalf("EnsurePeer: %v", err)
 	}
-	rec, _ := svc.store.Get("expiry-peer")
+	rec, _ := svc.store.Get(testExpiryPeerID)
 	if rec.ExpiresAt == nil || !rec.ExpiresAt.Equal(future) {
 		t.Errorf("expected expiresAt to be updated to %v, got %v", future, rec.ExpiresAt)
 	}
@@ -458,7 +468,7 @@ func TestStatsBothSubnets(t *testing.T) {
 func TestStatsDeviceError(t *testing.T) {
 	_, subnet4, _ := net.ParseCIDR(testSubnet4)
 	svc := &WireGuardService{
-		client:     fakeWGClient{err: errors.New("device error")},
+		client:     fakeWGClient{err: errors.New(testErrDeviceError)},
 		deviceName: "wg0",
 		subnet4:    subnet4,
 		serverIP4:  net.ParseIP(testServerIP4),
@@ -474,7 +484,7 @@ func TestStatsDeviceError(t *testing.T) {
 
 func TestListPeersDeviceError(t *testing.T) {
 	svc := &WireGuardService{
-		client:     fakeWGClient{err: errors.New("device error")},
+		client:     fakeWGClient{err: errors.New(testErrDeviceError)},
 		deviceName: "wg0",
 		store:      NewPeerStore(),
 	}
@@ -504,7 +514,7 @@ func TestListPeersActivePeer(t *testing.T) {
 		PeerID:       "active-peer",
 		PublicKey:    key,
 		PresharedKey: wgtypes.Key{},
-		AllowedIPs:   mustParseCIDRs(t, "10.0.0.2/32"),
+		AllowedIPs:   mustParseCIDRs(t, testPeerIP4),
 		CreatedAt:    time.Now().UTC(),
 	})
 
@@ -528,7 +538,7 @@ func TestPeerRecordToListItemActiveState(t *testing.T) {
 		PeerID:       "p1",
 		PublicKey:    key,
 		PresharedKey: wgtypes.Key{},
-		AllowedIPs:   mustParseCIDRs(t, "10.0.0.2/32"),
+		AllowedIPs:   mustParseCIDRs(t, testPeerIP4),
 		CreatedAt:    time.Now().UTC(),
 	}
 	recentHandshake := time.Now().Add(-30 * time.Second)
@@ -549,7 +559,7 @@ func TestPeerRecordToListItemInactiveState(t *testing.T) {
 		PeerID:       "p2",
 		PublicKey:    key,
 		PresharedKey: wgtypes.Key{},
-		AllowedIPs:   mustParseCIDRs(t, "10.0.0.2/32"),
+		AllowedIPs:   mustParseCIDRs(t, testPeerIP4),
 		CreatedAt:    time.Now().UTC(),
 	}
 	oldHandshake := time.Now().Add(-10 * time.Minute)
@@ -570,7 +580,7 @@ func TestPeerRecordToListItemNoHandshake(t *testing.T) {
 		PeerID:       "p3",
 		PublicKey:    key,
 		PresharedKey: wgtypes.Key{},
-		AllowedIPs:   mustParseCIDRs(t, "10.0.0.2/32"),
+		AllowedIPs:   mustParseCIDRs(t, testPeerIP4),
 	}
 	item := peerRecordToListItem(rec, wgtypes.Peer{}, time.Now())
 	if item.Active {
@@ -590,7 +600,7 @@ func TestPeerRecordToListItemIPv6Family(t *testing.T) {
 		PeerID:       "p4",
 		PublicKey:    key,
 		PresharedKey: wgtypes.Key{},
-		AllowedIPs:   mustParseCIDRs(t, "10.0.0.2/32", "fd00::2/128"),
+		AllowedIPs:   mustParseCIDRs(t, testPeerIP4, "fd00::2/128"),
 		CreatedAt:    time.Now().UTC(),
 	}
 	item := peerRecordToListItem(rec, wgtypes.Peer{}, time.Now())
@@ -613,10 +623,10 @@ func TestValidateAddressFamiliesBothFamilies(t *testing.T) {
 	}
 	families, err := svc.ValidateAddressFamilies([]string{FamilyIPv4, FamilyIPv6})
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		t.Fatalf(testErrUnexpectedFormat, err)
 	}
 	if len(families) != 2 {
-		t.Errorf("expected 2 families, got %v", families)
+		t.Errorf(msgExpectedTwoFamilies, families)
 	}
 }
 
@@ -647,17 +657,17 @@ func TestDeletePeerDeviceError(t *testing.T) {
 		store:      NewPeerStore(),
 	}
 	svc.store.Set(PeerRecord{
-		PeerID:       "del-fail",
+		PeerID:       testDelFailPeerID,
 		PublicKey:    key,
 		PresharedKey: wgtypes.Key{},
-		AllowedIPs:   mustParseCIDRs(t, "10.0.0.2/32"),
+		AllowedIPs:   mustParseCIDRs(t, testPeerIP4),
 	})
 
-	if err := svc.DeletePeer("del-fail"); err == nil {
+	if err := svc.DeletePeer(testDelFailPeerID); err == nil {
 		t.Fatal("expected error when ConfigureDevice fails")
 	}
 	// Peer should still be in store since device removal failed
-	if _, ok := svc.store.Get("del-fail"); !ok {
+	if _, ok := svc.store.Get(testDelFailPeerID); !ok {
 		t.Error("peer should remain in store when device removal fails")
 	}
 }
@@ -666,7 +676,7 @@ func TestDeletePeerDeviceError(t *testing.T) {
 
 func TestServerInfoDeviceError(t *testing.T) {
 	svc := &WireGuardService{
-		client:     fakeWGClient{err: errors.New("device offline")},
+		client:     fakeWGClient{err: errors.New(testErrDeviceOffline)},
 		deviceName: "wg0",
 		store:      NewPeerStore(),
 	}
