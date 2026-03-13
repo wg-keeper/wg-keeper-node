@@ -540,6 +540,113 @@ func TestValidateWireGuardSubnet6RejectsIPv4(t *testing.T) {
 	}
 }
 
+func TestLoadConfigNodeConfigWhitespace(t *testing.T) {
+	// Whitespace-only NODE_CONFIG trims to "" → defaults to "config.yaml" which shouldn't exist in test dir.
+	t.Setenv("NODE_CONFIG", "   ")
+	if _, err := LoadConfig(); err == nil {
+		t.Fatal("expected error when NODE_CONFIG is whitespace and config.yaml does not exist")
+	}
+}
+
+func TestParseAllowedIPsAllEmptyStrings(t *testing.T) {
+	nets, err := parseAllowedIPs("field", []string{"", " ", ""})
+	if err != nil {
+		t.Fatalf(msgExpectedNoError, err)
+	}
+	if nets != nil {
+		t.Fatalf("expected nil nets for all-empty entries, got %v", nets)
+	}
+}
+
+func TestParseAllowedIPsIPv6CIDR(t *testing.T) {
+	nets, err := parseAllowedIPs("field", []string{"fd00::/64"})
+	if err != nil {
+		t.Fatalf(msgExpectedNoError, err)
+	}
+	if len(nets) != 1 {
+		t.Fatalf("expected 1 net, got %d", len(nets))
+	}
+}
+
+func TestOptionalIPv4WithIPv6Address(t *testing.T) {
+	_, err := optionalIPv4("field", "fd00::1")
+	if err == nil {
+		t.Fatal("expected error for IPv6 address in optionalIPv4")
+	}
+}
+
+func TestOptionalIPv6WithIPv4Address(t *testing.T) {
+	_, err := optionalIPv6("field", "10.0.0.1")
+	if err == nil {
+		t.Fatal("expected error for IPv4 address in optionalIPv6")
+	}
+}
+
+func TestParsePortZero(t *testing.T) {
+	if _, err := parsePort("field", "0"); err == nil {
+		t.Fatal("expected error for port 0")
+	}
+}
+
+func TestParsePortMaxValid(t *testing.T) {
+	port, err := parsePort("field", "65535")
+	if err != nil || port != 65535 {
+		t.Fatalf("expected port 65535, got %d, err: %v", port, err)
+	}
+}
+
+func TestParsePortTooHigh(t *testing.T) {
+	if _, err := parsePort("field", "65536"); err == nil {
+		t.Fatal("expected error for port 65536")
+	}
+}
+
+func TestRequirePortZero(t *testing.T) {
+	if err := requirePort("field", 0); err == nil {
+		t.Fatal("expected error for port 0")
+	}
+}
+
+func TestRequirePortValid(t *testing.T) {
+	if err := requirePort("field", 51820); err != nil {
+		t.Fatalf(msgExpectedNoError, err)
+	}
+}
+
+func TestTLSEnabledFalse(t *testing.T) {
+	cfg := Config{}
+	if cfg.TLSEnabled() {
+		t.Error("expected TLSEnabled=false when no cert/key configured")
+	}
+}
+
+func TestTLSEnabledTrue(t *testing.T) {
+	cfg := Config{TLSCertFile: "cert.pem", TLSKeyFile: "key.pem"}
+	if !cfg.TLSEnabled() {
+		t.Error("expected TLSEnabled=true when both cert and key are set")
+	}
+}
+
+func TestLoadConfigInvalidServerIP6(t *testing.T) {
+	path := writeConfigFile(t, `
+server:
+  port: "51821"
+auth:
+  api_key: "test-key"
+wireguard:
+  interface: "wg0"
+  subnet6: "fd00::/112"
+  server_ip6: "10.0.0.1"
+  listen_port: 51820
+  routing:
+    wan_interface: "eth0"
+`)
+	t.Setenv("NODE_CONFIG", path)
+	if _, err := LoadConfig(); err == nil {
+		t.Fatal("expected error for IPv4 address as server_ip6")
+	}
+}
+
 func TestValidateWireGuardSubnet6PrefixTooLong(t *testing.T) {
 	if err := validateWireGuardSubnet6("fd00::/127"); err == nil {
 		t.Fatal("expected error for /127 IPv6 subnet in validateWireGuardSubnet6")

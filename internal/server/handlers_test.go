@@ -634,6 +634,72 @@ func TestListPeersInvalidParamsIgnored(t *testing.T) {
 	}
 }
 
+func TestApplyPaginationEmptyList(t *testing.T) {
+	offset, limit, paginated := applyPagination([]wireguard.PeerListItem{}, "0", "10")
+	if offset != 0 || limit != 0 || len(paginated) != 0 {
+		t.Errorf("expected offset=0, limit=0, empty slice; got offset=%d limit=%d len=%d", offset, limit, len(paginated))
+	}
+}
+
+func TestApplyPaginationNegativeOffset(t *testing.T) {
+	peers := makePeerList(5)
+	offset, _, paginated := applyPagination(peers, "-1", "")
+	if offset != 0 {
+		t.Errorf("expected offset=0 for negative offset string, got %d", offset)
+	}
+	if len(paginated) != 5 {
+		t.Errorf("expected all 5 peers, got %d", len(paginated))
+	}
+}
+
+func TestApplyPaginationZeroOffsetString(t *testing.T) {
+	peers := makePeerList(5)
+	offset, _, paginated := applyPagination(peers, "0", "")
+	if offset != 0 {
+		t.Errorf("expected offset=0, got %d", offset)
+	}
+	if len(paginated) != 5 {
+		t.Errorf("expected all 5 peers, got %d", len(paginated))
+	}
+}
+
+func TestApplyPaginationOffsetEqualToLength(t *testing.T) {
+	peers := makePeerList(3)
+	offset, _, paginated := applyPagination(peers, "3", "")
+	if offset != 3 {
+		t.Errorf("expected offset=3, got %d", offset)
+	}
+	if len(paginated) != 0 {
+		t.Errorf("expected empty result when offset==len, got %d", len(paginated))
+	}
+}
+
+func TestApplyPaginationNegativeLimit(t *testing.T) {
+	peers := makePeerList(5)
+	_, limit, paginated := applyPagination(peers, "0", "-1")
+	if len(paginated) != 5 {
+		t.Errorf("expected all 5 peers for negative limit, got %d", len(paginated))
+	}
+	if limit != 5 {
+		t.Errorf("expected limit=5 (all remaining), got %d", limit)
+	}
+}
+
+func TestParseExpiresAtNil(t *testing.T) {
+	got, err := parseExpiresAt(nil)
+	if err != nil || got != nil {
+		t.Errorf("expected (nil, nil), got (%v, %v)", got, err)
+	}
+}
+
+func TestParseExpiresAtEmptyString(t *testing.T) {
+	empty := ""
+	got, err := parseExpiresAt(&empty)
+	if err != nil || got != nil {
+		t.Errorf("expected (nil, nil), got (%v, %v)", got, err)
+	}
+}
+
 func TestListPeersLimitLargerThanTotal(t *testing.T) {
 	peers := makePeerList(3)
 	list, _, meta := listPeersWithPagination(t, peers, "?limit=100")

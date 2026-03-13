@@ -322,6 +322,42 @@ func TestAddressLineFromSubnet6ServerIPOutsideSubnet(t *testing.T) {
 	}
 }
 
+func TestBuildRoutingRulesWhitespaceOnlyWAN(t *testing.T) {
+	// Whitespace-only WAN interface should be treated the same as empty → no rules.
+	cfg := config.Config{WANInterface: "   ", WGSubnet: subnetTestCIDR}
+	up, down := buildRoutingRules(cfg)
+	assertRoutingRulesNil(t, up, down)
+}
+
+func TestBuildRoutingRulesBothSubnets(t *testing.T) {
+	// Both IPv4 and IPv6 subnets → 3+3=6 PostUp and 6 PostDown rules.
+	cfg := config.Config{
+		WANInterface: "eth0",
+		WGSubnet:     subnetTestCIDR,
+		WGSubnet6:    subnet6TestCIDR64,
+	}
+	up, down := buildRoutingRules(cfg)
+	assertRoutingRulesCount(t, up, down, 6)
+	joined := strings.Join(up, " ")
+	if !strings.Contains(joined, "iptables") {
+		t.Error("expected iptables rules in PostUp")
+	}
+	if !strings.Contains(joined, "ip6tables") {
+		t.Error("expected ip6tables rules in PostUp")
+	}
+}
+
+func TestBuildConfigContentMultipleAddressLines(t *testing.T) {
+	cfg := config.Config{}
+	content := buildConfigContent("pk", []string{"10.0.0.1/24", "fd00::1/64"}, 51820, cfg)
+	if !strings.Contains(content, "Address = 10.0.0.1/24") {
+		t.Error("expected IPv4 address line")
+	}
+	if !strings.Contains(content, "Address = fd00::1/64") {
+		t.Error("expected IPv6 address line")
+	}
+}
+
 func TestDefaultConfigPath(t *testing.T) {
 	path := defaultConfigPath("")
 	if !strings.Contains(path, "wg0") {
