@@ -77,12 +77,14 @@ flowchart LR
 |-----------|---------|
 | **API key auth** | All protected endpoints require `X-API-Key`; `/healthz` and `/readyz` are public |
 | **IP allowlist** | `server.allowed_ips` — when set, only listed IPs/CIDRs can reach protected routes |
+| **Trusted proxies** | Only `127.0.0.1` and `::1` are trusted as reverse proxies, preventing `X-Forwarded-For` spoofing from external clients |
 | **Rate limiting** | 20 req/s per client IP, burst 30; automatically disabled when an allowlist is configured |
 | **Body limit** | 256 KB maximum; larger requests get `413 Request Entity Too Large` |
+| **Input validation** | Pagination `offset` must be ≥ 0 and `limit` between 1–1000; invalid values return `400 Bad Request` |
+| **Config validation** | `wireguard.routing.wan_interface` is validated against a safe character set (letters, digits, `-`, `_`, `.`) to prevent injection into routing rules |
 | **Security headers** | `X-Content-Type-Options`, `X-Frame-Options`, `X-XSS-Protection`, `Referrer-Policy`; `Strict-Transport-Security` when TLS is enabled |
 | **Request tracing** | Every response includes `X-Request-Id` (UUID v4) |
 | **WireGuard config** | Written with mode `0600`; minimal host surface |
-
 ## Requirements
 
 | | Requirement |
@@ -148,7 +150,7 @@ NODE_CONFIG=/path/to/config.yaml
 | `wireguard.server_ip` | Optional IPv4 address for the server within the subnet |
 | `wireguard.subnet6` | IPv6 CIDR for peer IP allocation (max prefix `/126`); optional when `subnet` is set |
 | `wireguard.server_ip6` | Optional IPv6 address for the server within the subnet |
-| `wireguard.routing.wan_interface` | WAN interface used for NAT rules (e.g. `eth0`) |
+| `wireguard.routing.wan_interface` | WAN interface used for NAT rules (e.g. `eth0`); only letters, digits, `-`, `_`, `.` are accepted |
 | `wireguard.peer_store_file` | Optional path to a JSON file for persistent peer storage |
 
 ## Deployment
@@ -278,8 +280,10 @@ Returns a paginated list of peers.
 
 | Param | Default | Description |
 |-------|---------|-------------|
-| `offset` | `0` | Number of items to skip |
-| `limit` | all | Maximum number of items to return |
+| `offset` | `0` | Number of items to skip; must be ≥ 0 |
+| `limit` | all | Maximum items to return; must be between 1 and 1000 |
+
+Invalid values return `400 Bad Request`.
 
 ```bash
 curl "http://localhost:51821/peers?offset=0&limit=50" \

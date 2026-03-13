@@ -14,6 +14,11 @@ const debugKey = "debug"
 
 func NewRouter(apiKey string, allowedNets []*net.IPNet, wgService *wireguard.WireGuardService, debug bool) *gin.Engine {
 	router := gin.New()
+	// Trust only loopback proxies (e.g. Caddy on the same host).
+	// This prevents X-Forwarded-For spoofing from external clients.
+	if err := router.SetTrustedProxies([]string{"127.0.0.1", "::1"}); err != nil {
+		panic(fmt.Sprintf("set trusted proxies: %v", err))
+	}
 	router.Use(requestIDMiddleware())
 	router.Use(securityHeadersMiddleware())
 	router.Use(bodyLimitMiddleware(MaxRequestBodySize))
