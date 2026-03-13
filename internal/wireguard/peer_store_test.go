@@ -281,7 +281,7 @@ func TestLoadFromFileInvalidJSON(t *testing.T) {
 		t.Fatalf("write: %v", err)
 	}
 	store := NewPeerStore()
-	if err := store.LoadFromFile(path); err == nil {
+	if store.LoadFromFile(path) == nil {
 		t.Fatal("expected error for invalid JSON")
 	}
 }
