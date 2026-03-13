@@ -22,22 +22,22 @@ func bodyLimitMiddleware(maxBytes int64) gin.HandlerFunc {
 		// Only limit methods that typically have a body.
 		switch c.Request.Method {
 		case http.MethodPost, http.MethodPut, http.MethodPatch:
-			// read up to maxBytes+1 to detect overflow
-			buf := make([]byte, maxBytes+1)
-			n, err := io.ReadFull(c.Request.Body, buf)
-			if err != nil && err != io.ErrUnexpectedEOF {
+			// Read up to maxBytes+1 to detect overflow without pre-allocating the full buffer.
+			limited := io.LimitReader(c.Request.Body, maxBytes+1)
+			buf, err := io.ReadAll(limited)
+			if err != nil {
 				c.AbortWithStatus(http.StatusBadRequest)
 				return
 			}
 			_ = c.Request.Body.Close()
-			if int64(n) > maxBytes {
+			if int64(len(buf)) > maxBytes {
 				c.AbortWithStatusJSON(http.StatusRequestEntityTooLarge, gin.H{
 					"error": "request body too large",
 					"code":  "body_too_large",
 				})
 				return
 			}
-			c.Request.Body = io.NopCloser(bytes.NewReader(buf[:n]))
+			c.Request.Body = io.NopCloser(bytes.NewReader(buf))
 		}
 		c.Next()
 	}

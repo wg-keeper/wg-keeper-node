@@ -5,11 +5,15 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 
 	"github.com/goccy/go-yaml"
 )
+
+// validNetworkInterface matches safe Linux network interface names: alphanumeric, hyphens, underscores, dots.
+var validNetworkInterface = regexp.MustCompile(`^[a-zA-Z0-9\-_.]+$`)
 
 const errMsgRequired = "%s is required"
 
@@ -156,7 +160,7 @@ func parseWireGuard(fc fileConfig) (wgSubnet, wgSubnet6, wgInterface, wgServerIP
 	if err != nil {
 		return "", "", "", "", "", "", 0, "", err
 	}
-	wanInterface, err = requireString("wireguard.routing.wan_interface", fc.WireGuard.Routing.WANInterface)
+	wanInterface, err = requireNetworkInterface("wireguard.routing.wan_interface", fc.WireGuard.Routing.WANInterface)
 	if err != nil {
 		return "", "", "", "", "", "", 0, "", err
 	}
@@ -236,6 +240,19 @@ func requireString(field, value string) (string, error) {
 	out := strings.TrimSpace(value)
 	if out == "" {
 		return "", fmt.Errorf(errMsgRequired, field)
+	}
+	return out, nil
+}
+
+// requireNetworkInterface validates that the value is a non-empty, safe Linux network interface name.
+// This prevents command injection when the value is interpolated into iptables PostUp/PostDown rules.
+func requireNetworkInterface(field, value string) (string, error) {
+	out, err := requireString(field, value)
+	if err != nil {
+		return "", err
+	}
+	if !validNetworkInterface.MatchString(out) {
+		return "", fmt.Errorf("%s must be a valid network interface name (letters, digits, hyphens, underscores, dots only)", field)
 	}
 	return out, nil
 }

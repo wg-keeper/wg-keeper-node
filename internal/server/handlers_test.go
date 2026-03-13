@@ -623,14 +623,25 @@ func TestListPeersOffsetBeyondTotal(t *testing.T) {
 	}
 }
 
-func TestListPeersInvalidParamsIgnored(t *testing.T) {
+func TestListPeersInvalidParamsRejected(t *testing.T) {
 	peers := makePeerList(5)
-	list, _, meta := listPeersWithPagination(t, peers, "?offset=abc&limit=xyz")
-	if len(list) != 5 {
-		t.Errorf("expected all 5 peers with invalid params, got %d", len(list))
+	router := newTestRouter()
+	router.GET(pathPeers, apiKeyMiddleware(testAPIKey), listPeersHandler(mockWGService{
+		listPeersFunc: func() ([]wireguard.PeerListItem, error) { return peers, nil },
+	}, false))
+
+	cases := []string{
+		"?offset=abc",
+		"?limit=xyz",
+		"?offset=-1",
+		"?limit=0",
+		"?limit=-5",
 	}
-	if offset, _ := meta["offset"].(float64); offset != 0 {
-		t.Errorf("expected offset=0 for invalid params, got %v", offset)
+	for _, q := range cases {
+		rec := performRequest(t, router, http.MethodGet, pathPeers+q, nil, testAPIKey)
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("query %q: expected 400, got %d", q, rec.Code)
+		}
 	}
 }
 

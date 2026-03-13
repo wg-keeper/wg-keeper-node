@@ -2,6 +2,7 @@ package server
 
 import (
 	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	"strconv"
@@ -12,7 +13,10 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-const errMsgPeerIDMustBeUUIDv4 = "peerId must be uuid v4"
+const (
+	errMsgPeerIDMustBeUUIDv4 = "peerId must be uuid v4"
+	maxPaginationLimit       = 1000
+)
 
 type peerRequest struct {
 	PeerID          string   `json:"peerId" binding:"required"`
@@ -158,6 +162,10 @@ func listPeersHandler(wgService wgPeersListProvider, debug bool) gin.HandlerFunc
 			list = []wireguard.PeerListItem{}
 		}
 		total := len(list)
+		if err := validatePaginationParams(c.Query("offset"), c.Query("limit")); err != nil {
+			writeError(c, http.StatusBadRequest, err.Error(), "invalid_pagination", debug, nil)
+			return
+		}
 		offset, limit, paginated := applyPagination(list, c.Query("offset"), c.Query("limit"))
 		hasPrev := offset > 0 && total > 0
 		hasNext := offset+len(paginated) < total
@@ -191,12 +199,30 @@ func listPeersHandler(wgService wgPeersListProvider, debug bool) gin.HandlerFunc
 	}
 }
 
+// validatePaginationParams returns an error if offset or limit are present but invalid.
+// offset must be >= 0; limit must be between 1 and maxPaginationLimit.
+func validatePaginationParams(offsetStr, limitStr string) error {
+	if offsetStr != "" {
+		n, err := strconv.Atoi(offsetStr)
+		if err != nil || n < 0 {
+			return fmt.Errorf("offset must be a non-negative integer")
+		}
+	}
+	if limitStr != "" {
+		n, err := strconv.Atoi(limitStr)
+		if err != nil || n <= 0 || n > maxPaginationLimit {
+			return fmt.Errorf("limit must be between 1 and %d", maxPaginationLimit)
+		}
+	}
+	return nil
+}
+
 // applyPagination slices the list according to optional offset and limit query params.
-// Invalid or missing params are silently ignored (offset defaults to 0, limit defaults to no limit).
+// Params are assumed to be pre-validated by validatePaginationParams.
 // It returns the resolved offset, limit, and the paginated slice.
 func applyPagination(list []wireguard.PeerListItem, offsetStr, limitStr string) (offset int, limit int, paginated []wireguard.PeerListItem) {
 	offset = 0
-	if n, err := strconv.Atoi(offsetStr); err == nil && n > 0 {
+	if n, err := strconv.Atoi(offsetStr); err == nil && n >= 0 {
 		offset = n
 	}
 	if offset >= len(list) {
