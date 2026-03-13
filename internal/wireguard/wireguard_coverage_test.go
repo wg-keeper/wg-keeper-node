@@ -12,6 +12,7 @@ import (
 const (
 	testSubnet4        = "10.0.0.0/24"
 	testServerIP4      = "10.0.0.1"
+	testSubnet31       = "10.0.0.0/31"
 	testSubnet6        = "fd00::/112"
 	testSubnet6Large   = "fd00::/64"
 	testSubnet6Small   = "fd00::/120"
@@ -31,6 +32,168 @@ const (
 )
 
 // ---------- setupSubnet4 / setupSubnet6 ----------
+
+// ---------- DeletePeer not found ----------
+
+func TestDeletePeerNotFound(t *testing.T) {
+	svc := &WireGuardService{
+		client:     fakeWGClient{device: &wgtypes.Device{}},
+		deviceName: "wg0",
+		store:      NewPeerStore(),
+	}
+	err := svc.DeletePeer("nonexistent")
+	if !errors.Is(err, ErrPeerNotFound) {
+		t.Fatalf("expected ErrPeerNotFound, got %v", err)
+	}
+}
+
+// ---------- EnsurePeer with invalid address family ----------
+
+func TestEnsurePeerInvalidAddressFamily(t *testing.T) {
+	_, subnet4, _ := net.ParseCIDR(testSubnet4)
+	svc := &WireGuardService{
+		client:     fakeWGClient{device: &wgtypes.Device{}},
+		deviceName: "wg0",
+		subnet4:    subnet4,
+		serverIP4:  net.ParseIP(testServerIP4),
+		store:      NewPeerStore(),
+	}
+	_, err := svc.EnsurePeer("peer-bad-family", nil, []string{"InvalidFamily"})
+	if err == nil {
+		t.Fatal("expected error for invalid address family")
+	}
+}
+
+// ---------- rotatePeer with IPv6 AllowedIPs ----------
+
+func TestRotatePeerIPv6Family(t *testing.T) {
+	_, subnet6, _ := net.ParseCIDR(testSubnet6)
+	key, _ := wgtypes.GenerateKey()
+	svc := &WireGuardService{
+		client:     fakeWGClient{device: &wgtypes.Device{}},
+		deviceName: "wg0",
+		subnet6:    subnet6,
+		serverIP6:  net.ParseIP(testServerIP6),
+		store:      NewPeerStore(),
+	}
+	svc.store.Set(PeerRecord{
+		PeerID:       "ipv6-peer",
+		PublicKey:    key,
+		PresharedKey: wgtypes.Key{},
+		AllowedIPs:   mustParseCIDRs(t, "fd00::2/128"),
+	})
+	info, err := svc.EnsurePeer("ipv6-peer", nil, nil)
+	if err != nil {
+		t.Fatalf("EnsurePeer IPv6 rotate: %v", err)
+	}
+	if len(info.AddressFamilies) != 1 || info.AddressFamilies[0] != FamilyIPv6 {
+		t.Errorf("expected [IPv6] families, got %v", info.AddressFamilies)
+	}
+}
+
+// ---------- ipv4Range with IPv6 subnet ----------
+
+func TestIpv4RangeIPv6Subnet(t *testing.T) {
+	_, subnet6, _ := net.ParseCIDR(testSubnet6)
+	_, _, err := ipv4Range(subnet6)
+	if err == nil {
+		t.Fatal("expected error when IPv6 subnet passed to ipv4Range")
+	}
+}
+
+// ---------- allocateOneIPv4 error via broken subnet ----------
+
+func TestAllocateIPsIPv4RangeError(t *testing.T) {
+	// /31 causes ipv4Range to fail inside allocateOneIPv4
+	_, subnet31, _ := net.ParseCIDR(testSubnet31)
+	svc := &WireGuardService{
+		client:     fakeWGClient{device: &wgtypes.Device{}},
+		deviceName: "wg0",
+		subnet4:    subnet31,
+		serverIP4:  net.ParseIP(testServerIP4),
+		store:      NewPeerStore(),
+	}
+	_, err := svc.allocateIPs([]string{FamilyIPv4})
+	if err == nil {
+		t.Fatal("expected error from allocateOneIPv4 for /31 subnet")
+	}
+}
+
+// ---------- allocateOneIPv6 with large subnet (ones < 112) ----------
+
+func TestAllocateOneIPv6LargeSubnet(t *testing.T) {
+	_, subnet, _ := net.ParseCIDR(testSubnet6Large) // /64, ones=64 < 112
+	used := map[string]struct{}{}
+	ipNet, err := allocateOneIPv6(subnet, used)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if ipNet.IP.To4() != nil {
+		t.Error("expected IPv6 address")
+	}
+}
+
+// ---------- possiblePeerCountIPv6 error ----------
+
+func TestPossiblePeerCountIPv6TooSmall(t *testing.T) {
+	_, subnet128, _ := net.ParseCIDR("fd00::1/128")
+	_, err := possiblePeerCountIPv6(subnet128, nil)
+	if err == nil {
+		t.Fatal("expected error for /128 IPv6 subnet")
+	}
+}
+
+// ---------- possiblePeerCountTotal IPv6 error ----------
+
+func TestPossiblePeerCountTotalSubnet6Error(t *testing.T) {
+	_, subnet128, _ := net.ParseCIDR("fd00::1/128")
+	svc := &WireGuardService{subnet6: subnet128, store: NewPeerStore()}
+	_, err := svc.possiblePeerCountTotal()
+	if err == nil {
+		t.Fatal("expected error for /128 subnet6 in possiblePeerCountTotal")
+	}
+}
+
+// ---------- resolveServerIP4 empty serverIP with bad subnet ----------
+
+func TestResolveServerIP4EmptyServerIPBadSubnet(t *testing.T) {
+	_, subnet31, _ := net.ParseCIDR(testSubnet31)
+	_, err := resolveServerIP4(subnet31, "")
+	if err == nil {
+		t.Fatal("expected error when serverIP is empty and subnet is /31 (too small)")
+	}
+}
+
+func TestSetupSubnet6InvalidCIDR(t *testing.T) {
+	if _, _, err := setupSubnet6("not-a-cidr", ""); err == nil {
+		t.Fatal("expected error for invalid CIDR in setupSubnet6")
+	}
+}
+
+func TestPossiblePeerCountTotalSubnet4Error(t *testing.T) {
+	// /31 subnet causes ipv4Range to fail ("too small")
+	_, subnet31, _ := net.ParseCIDR(testSubnet31)
+	svc := &WireGuardService{subnet4: subnet31, store: NewPeerStore()}
+	_, err := svc.possiblePeerCountTotal()
+	if err == nil {
+		t.Fatal("expected error for /31 subnet in possiblePeerCountTotal")
+	}
+}
+
+func TestEnsurePeerConfigureDeviceError(t *testing.T) {
+	_, subnet4, _ := net.ParseCIDR(testSubnet4)
+	svc := &WireGuardService{
+		client:     fakeWGClient{device: &wgtypes.Device{}, configureErr: errors.New(testErrDeviceBusyMessage)},
+		deviceName: "wg0",
+		subnet4:    subnet4,
+		serverIP4:  net.ParseIP(testServerIP4),
+		store:      NewPeerStore(),
+	}
+	_, err := svc.EnsurePeer("brand-new-peer", nil, nil)
+	if err == nil {
+		t.Fatal("expected error when ConfigureDevice fails for new peer")
+	}
+}
 
 func TestSetupSubnet4EmptyReturnsNil(t *testing.T) {
 	sub, ip, err := setupSubnet4("", "")
@@ -683,6 +846,37 @@ func TestServerInfoDeviceError(t *testing.T) {
 	_, _, err := svc.ServerInfo()
 	if err == nil {
 		t.Fatal("expected error when device is unavailable")
+	}
+}
+
+// ---------- ValidateAddressFamilies edge cases ----------
+
+func TestValidateAddressFamiliesInvalidFamilyName(t *testing.T) {
+	_, subnet4, _ := net.ParseCIDR(testSubnet4)
+	svc := &WireGuardService{subnet4: subnet4, store: NewPeerStore()}
+	_, err := svc.ValidateAddressFamilies([]string{"InvalidFamily"})
+	if err == nil {
+		t.Fatal("expected error for unknown address family")
+	}
+}
+
+func TestValidateAddressFamiliesDuplicateFamily(t *testing.T) {
+	_, subnet4, _ := net.ParseCIDR(testSubnet4)
+	_, subnet6, _ := net.ParseCIDR(testSubnet6)
+	svc := &WireGuardService{subnet4: subnet4, subnet6: subnet6, store: NewPeerStore()}
+	_, err := svc.ValidateAddressFamilies([]string{FamilyIPv4, FamilyIPv4})
+	if err == nil {
+		t.Fatal("expected error for duplicate address family")
+	}
+}
+
+// ---------- resolveServerIP4 edge cases ----------
+
+func TestResolveServerIP4IPv6Input(t *testing.T) {
+	_, subnet, _ := net.ParseCIDR(testSubnet4)
+	_, err := resolveServerIP4(subnet, "fd00::1")
+	if err == nil {
+		t.Fatal("expected error for IPv6 address passed as server_ip")
 	}
 }
 

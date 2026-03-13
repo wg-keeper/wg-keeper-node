@@ -264,6 +264,29 @@ func TestRunExpiredPeersCleanupKeepsPermanentPeer(t *testing.T) {
 	}
 }
 
+func TestCleanupExpiredPeersNotYetExpired(t *testing.T) {
+	svc := newTestServiceWithSubnet(t, nil)
+	future := time.Now().UTC().Add(time.Hour)
+	key, _ := wgtypes.GenerateKey()
+	svc.store.Set(PeerRecord{
+		PeerID:       "not-yet-expired",
+		PublicKey:    key,
+		PresharedKey: wgtypes.Key{},
+		AllowedIPs:   []net.IPNet{ipNet(t, ipPeerTest)},
+		CreatedAt:    time.Now().UTC(),
+		ExpiresAt:    &future,
+	})
+	svc.runCleanupSafe()
+
+	list, err := svc.ListPeers()
+	if err != nil {
+		t.Fatalf(msgListPeersFmt, err)
+	}
+	if len(list) != 1 {
+		t.Errorf("peer with future ExpiresAt should remain, got %d peers", len(list))
+	}
+}
+
 func TestCleanupExpiredPeersDeletePeerError(t *testing.T) {
 	svc := newTestServiceWithSubnet(t, errors.New("device busy"))
 	expiredAt := time.Now().UTC().Add(-time.Hour)
@@ -446,6 +469,37 @@ func TestEnsurePeerNewPeer(t *testing.T) {
 	if !ok {
 		t.Error("peer should be in store")
 	}
+}
+
+func TestEnsurePeerNoAvailableIP(t *testing.T) {
+	// /30 gives only 2 usable IPs (.1=server, .2=only peer slot)
+	_, subnet, _ := net.ParseCIDR("10.0.0.0/30")
+	svc := &WireGuardService{
+		client:     fakeWGClient{device: &wgtypes.Device{}},
+		deviceName: "wg0",
+		subnet4:    subnet,
+		serverIP4:  net.ParseIP(ipServerTest),
+		store:      NewPeerStore(),
+	}
+	// occupy the only usable IP
+	svc.store.Set(PeerRecord{
+		PeerID:       peerIDTest,
+		PublicKey:    wgtypes.Key{},
+		PresharedKey: wgtypes.Key{},
+		AllowedIPs:   []net.IPNet{ipNet(t, ipPeerTest)},
+	})
+
+	_, err := svc.EnsurePeer("new-peer-no-ip", nil, nil)
+	if !errors.Is(err, ErrNoAvailableIP) {
+		t.Fatalf("expected ErrNoAvailableIP, got %v", err)
+	}
+}
+
+func TestRunCleanupSafePanicRecovery(t *testing.T) {
+	// nil store will cause a panic inside cleanupExpiredPeers; runCleanupSafe must recover it
+	svc := &WireGuardService{store: nil}
+	// Should not panic
+	svc.runCleanupSafe()
 }
 
 func TestEnsurePeerDuplicateRotates(t *testing.T) {

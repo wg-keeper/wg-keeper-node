@@ -203,6 +203,89 @@ func TestStoredToRecordEmptyPresharedKey(t *testing.T) {
 	}
 }
 
+func TestStoredToRecordInvalidPublicKey(t *testing.T) {
+	stored := peerRecordStored{
+		PeerID:     testPeerID,
+		PublicKey:  "not-a-valid-key",
+		AllowedIPs: []string{"10.0.0.1/32"},
+	}
+	_, err := storedToRecord(stored)
+	if err == nil {
+		t.Fatal("expected error for invalid public key")
+	}
+}
+
+func TestStoredToRecordEmptyCIDRInAllowedIPs(t *testing.T) {
+	key, _ := wgtypes.GenerateKey()
+	psk, _ := wgtypes.GenerateKey()
+	stored := peerRecordStored{
+		PeerID:       testPeerID,
+		PublicKey:    key.String(),
+		PresharedKey: psk.String(),
+		AllowedIPs:   []string{"", "10.0.0.1/32"}, // empty entry should be skipped
+		CreatedAt:    time.Now().UTC(),
+	}
+	rec, err := storedToRecord(stored)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(rec.AllowedIPs) != 1 {
+		t.Fatalf("expected 1 net (empty skipped), got %d", len(rec.AllowedIPs))
+	}
+}
+
+func TestStoredToRecordInvalidCIDRInAllowedIPs(t *testing.T) {
+	key, _ := wgtypes.GenerateKey()
+	psk, _ := wgtypes.GenerateKey()
+	stored := peerRecordStored{
+		PeerID:       testPeerID,
+		PublicKey:    key.String(),
+		PresharedKey: psk.String(),
+		AllowedIPs:   []string{"not-a-cidr"},
+		CreatedAt:    time.Now().UTC(),
+	}
+	_, err := storedToRecord(stored)
+	if err == nil {
+		t.Fatal("expected error for invalid CIDR in allowed_ips")
+	}
+}
+
+func TestStoredToRecordAllCIDRsEmpty(t *testing.T) {
+	key, _ := wgtypes.GenerateKey()
+	psk, _ := wgtypes.GenerateKey()
+	stored := peerRecordStored{
+		PeerID:       testPeerID,
+		PublicKey:    key.String(),
+		PresharedKey: psk.String(),
+		AllowedIPs:   []string{"", ""},
+		CreatedAt:    time.Now().UTC(),
+	}
+	_, err := storedToRecord(stored)
+	if err == nil {
+		t.Fatal("expected error when all allowed_ips entries are empty strings")
+	}
+}
+
+func TestLoadFromFileReadError(t *testing.T) {
+	store := NewPeerStore()
+	err := store.LoadFromFile("/nonexistent-dir/peers.json")
+	if err == nil {
+		t.Fatal("expected error for unreadable file")
+	}
+}
+
+func TestLoadFromFileInvalidJSON(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "peers.json")
+	if err := os.WriteFile(path, []byte("{not valid json"), 0o600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	store := NewPeerStore()
+	if store.LoadFromFile(path) == nil {
+		t.Fatal("expected error for invalid JSON")
+	}
+}
+
 func TestLoadFromDataDuplicatePublicKey(t *testing.T) {
 	key, _ := wgtypes.GenerateKey()
 	psk, _ := wgtypes.GenerateKey()
