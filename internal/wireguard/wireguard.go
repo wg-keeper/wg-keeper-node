@@ -942,14 +942,6 @@ func uint32ToIP(value uint32) net.IP {
 	return net.IPv4(byte(value>>24), byte(value>>16), byte(value>>8), byte(value))
 }
 
-func nextIPv4(ip net.IP) net.IP {
-	return uint32ToIP(ipToUint32(ip) + 1)
-}
-
-func ipAfter(a, b net.IP) bool {
-	return ipToUint32(a) > ipToUint32(b)
-}
-
 func ipv6Range(subnet *net.IPNet) (net.IP, net.IP, error) {
 	if subnet.IP.To4() != nil {
 		return nil, nil, errors.New("expected IPv6 subnet")
