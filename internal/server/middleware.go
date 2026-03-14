@@ -31,10 +31,8 @@ func apiKeyMiddleware(apiKey string) gin.HandlerFunc {
 
 func apiKeyMatches(c *gin.Context, apiKey string) bool {
 	got := c.GetHeader(apiKeyHeader)
-	if len(got) != len(apiKey) {
-		subtle.ConstantTimeCompare([]byte(apiKey), []byte(apiKey)) // dummy to avoid leaking length
-		return false
-	}
+	// No early exit on length: any branch before ConstantTimeCompare leaks
+	// the key length via response timing, reducing the attacker's search space.
 	return subtle.ConstantTimeCompare([]byte(got), []byte(apiKey)) == 1
 }
 

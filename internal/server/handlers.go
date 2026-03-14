@@ -111,6 +111,9 @@ func createPeerHandler(wgService wgPeerService, debug bool) gin.HandlerFunc {
 
 		log.Printf("time=%s level=info msg=\"peer created\"",
 			time.Now().Format(time.RFC3339))
+		// Private and preshared keys must never be cached by proxies or browsers.
+		c.Header("Cache-Control", "no-store, private, no-cache")
+		c.Header("Pragma", "no-cache")
 		c.JSON(http.StatusOK, createPeerResponse{
 			Server: serverInfoResponse{
 				PublicKey:  serverPublicKey,

@@ -307,7 +307,9 @@ func TestReconcileStoreWithSubnetsOutsidePeerRemoved(t *testing.T) {
 }
 
 func TestReconcileStoreWithSubnetsDeviceErrorLogged(t *testing.T) {
-	// ConfigureDevice fails: peer should still be removed from store.
+	// ConfigureDevice fails: peer must NOT be removed from the store to keep
+	// store and device in sync. Removing the store record while the peer still
+	// exists on the device would create an orphan invisible to the application.
 	_, subnet4, _ := net.ParseCIDR(subnetTestCIDR)
 	key, _ := wgtypes.GenerateKey()
 	svc := &WireGuardService{
@@ -325,11 +327,11 @@ func TestReconcileStoreWithSubnetsDeviceErrorLogged(t *testing.T) {
 	})
 
 	changed := svc.reconcileStoreWithSubnets()
-	if !changed {
-		t.Error("expected changed=true")
+	if changed {
+		t.Error("expected changed=false: store removal must be skipped when device removal fails")
 	}
-	if _, ok := svc.store.Get(testOutsidePeerID); ok {
-		t.Error("peer should be removed from store even when device fails")
+	if _, ok := svc.store.Get(testOutsidePeerID); !ok {
+		t.Error("peer must remain in store when device removal fails to keep store and device in sync")
 	}
 }
 

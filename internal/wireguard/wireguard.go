@@ -233,7 +233,11 @@ func (s *WireGuardService) reconcileStoreWithSubnets() bool {
 			if err := s.client.ConfigureDevice(s.deviceName, wgtypes.Config{
 				Peers: []wgtypes.PeerConfig{{PublicKey: rec.PublicKey, Remove: true}},
 			}); err != nil {
-				log.Printf("reconcile: failed to remove peer %s from device: %v", rec.PeerID, err)
+				// Do not remove from store when device removal fails: removing the store
+				// record while the peer remains on the device would create an orphan that
+				// is invisible to the store and won't be cleaned up on restart.
+				log.Printf("reconcile: failed to remove peer %s from device, skipping store removal: %v", rec.PeerID, err)
+				continue
 			}
 			s.store.Delete(rec.PeerID)
 			changed = true

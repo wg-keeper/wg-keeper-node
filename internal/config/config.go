@@ -281,10 +281,15 @@ func optionalCIDR(field, value string) (string, error) {
 	if out == "" {
 		return "", nil
 	}
-	if _, _, err := net.ParseCIDR(out); err != nil {
+	_, ipNet, err := net.ParseCIDR(out)
+	if err != nil {
 		return "", fmt.Errorf("%s must be a valid CIDR", field)
 	}
-	return out, nil
+	// Return the canonical network string from the parser (e.g. "10.0.0.0/24")
+	// rather than the raw input. This is a defense-in-depth measure: the canonical
+	// form is guaranteed safe to interpolate into iptables PostUp/PostDown commands
+	// even if a future code path skips the WANInterface regex check.
+	return ipNet.String(), nil
 }
 
 func optionalIPv4(field, value string) (string, error) {
