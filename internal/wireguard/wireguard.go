@@ -760,13 +760,26 @@ func allocateOneIPv4(subnet *net.IPNet, used map[string]struct{}, hint *uint32) 
 	startInt := ipToUint32(start)
 	endInt := ipToUint32(end)
 
+	// For subnets larger than maxIPv4Iter, cap the scan to avoid O(n) worst-case
+	// on a nearly-full subnet (mirrors the maxIter guard in allocateOneIPv6).
+	subnetSize := endInt - startInt + 1
+	maxIter := 0
+	if subnetSize > maxIPv4Iter {
+		maxIter = maxIPv4Iter
+	}
+
 	searchFrom := startInt
 	if hint != nil && *hint >= startInt && *hint < endInt {
 		searchFrom = *hint + 1
 	}
 
+	n := 0
 	// First pass: searchFrom → end. Wrap-around pass: start → searchFrom−1.
 	for candidate := searchFrom; candidate <= endInt; candidate++ {
+		if maxIter > 0 && n >= maxIter {
+			return net.IPNet{}, ErrNoAvailableIP
+		}
+		n++
 		ip := uint32ToIP(candidate)
 		if _, exists := used[ip.String()]; !exists {
 			used[ip.String()] = struct{}{}
@@ -778,6 +791,10 @@ func allocateOneIPv4(subnet *net.IPNet, used map[string]struct{}, hint *uint32) 
 	}
 	if searchFrom > startInt {
 		for candidate := startInt; candidate < searchFrom; candidate++ {
+			if maxIter > 0 && n >= maxIter {
+				return net.IPNet{}, ErrNoAvailableIP
+			}
+			n++
 			ip := uint32ToIP(candidate)
 			if _, exists := used[ip.String()]; !exists {
 				used[ip.String()] = struct{}{}
@@ -1034,7 +1051,12 @@ func possiblePeerCount(subnet *net.IPNet, serverIP net.IP) (int, error) {
 	return total, nil
 }
 
-const maxIPv6PeersReported = 65536
+const (
+	maxIPv6PeersReported = 65536
+	// maxIPv4Iter caps the allocation scan for large IPv4 subnets (e.g. /8).
+	// Matches the IPv6 cap so both families have consistent worst-case behaviour.
+	maxIPv4Iter = 65536
+)
 
 func possiblePeerCountIPv6(subnet *net.IPNet, serverIP net.IP) (int, error) {
 	start, end, err := ipv6Range(subnet)

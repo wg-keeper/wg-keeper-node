@@ -127,6 +127,11 @@ func rateLimitByIPMiddleware(allowedNets []*net.IPNet, limiter *ipRateLimiter) g
 			return
 		}
 		ip := c.ClientIP()
+		if ip == "" {
+			// Unparseable remote address: rate-limit under a shared key so
+			// such requests cannot bypass the limiter entirely.
+			ip = "unknown"
+		}
 		if !limiter.get(ip).Allow() {
 			c.AbortWithStatusJSON(429, gin.H{"error": "too many requests", "code": "rate_limited"})
 			return
