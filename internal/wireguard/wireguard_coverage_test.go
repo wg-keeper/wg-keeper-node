@@ -874,3 +874,150 @@ func TestNodeAddressFamiliesDualStack(t *testing.T) {
 		t.Errorf("expected 2 families, got %v", families)
 	}
 }
+
+// ---------- prevIPv6 ----------
+
+func TestPrevIPv6(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"fd00::5", "fd00::4"},
+		{"fd00::100", "fd00::ff"},
+		{"fd00::1", "fd00::"},
+	}
+	for _, tc := range cases {
+		got := prevIPv6(net.ParseIP(tc.in))
+		if got.String() != tc.want {
+			t.Errorf("prevIPv6(%s) = %s, want %s", tc.in, got, tc.want)
+		}
+	}
+}
+
+// ---------- ipv6SearchFrom ----------
+
+func TestIPv6SearchFromHintOutOfRange(t *testing.T) {
+	_, subnet, _ := net.ParseCIDR(subnet6TestCIDR) // fd00::/120
+	start, end, _ := ipv6Range(subnet)             // fd00::1 .. fd00::fe
+
+	// hint before start
+	h1 := net.ParseIP("fd00::").To16()
+	if from := ipv6SearchFrom(start, end, &h1); !from.Equal(start) {
+		t.Errorf("hint before start: expected start, got %s", from)
+	}
+	// hint after end
+	h2 := net.ParseIP("fd00::ff").To16()
+	if from := ipv6SearchFrom(start, end, &h2); !from.Equal(start) {
+		t.Errorf("hint after end: expected start, got %s", from)
+	}
+}
+
+func TestIPv6SearchFromHintAtEnd(t *testing.T) {
+	_, subnet, _ := net.ParseCIDR("fd00::/126") // fd00::1 .. fd00::2
+	start, end, _ := ipv6Range(subnet)
+
+	// hint = end: next overflows past end → searchFrom wraps to start
+	h := make(net.IP, 16)
+	copy(h, end)
+	from := ipv6SearchFrom(start, end, &h)
+	if !from.Equal(start) {
+		t.Errorf("hint at end: expected wrap to start, got %s", from)
+	}
+}
+
+// ---------- allocateOneIPv4 wrap-around ----------
+
+func TestAllocateOneIPv4WrapAround(t *testing.T) {
+	// /30: usable range 10.0.0.1 – 10.0.0.2 (2 IPs)
+	_, subnet, _ := net.ParseCIDR("10.0.0.0/30")
+	used := map[string]struct{}{"10.0.0.2": {}}
+	hint := ipToUint32(net.ParseIP("10.0.0.1").To4()) // searchFrom = .2
+	ipNet, err := allocateOneIPv4(subnet, used, &hint)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if ipNet.IP.String() != "10.0.0.1" {
+		t.Errorf("expected 10.0.0.1 (wrap-around), got %s", ipNet.IP)
+	}
+}
+
+// ---------- allocateOneIPv6 wrap-around (also exercises prevIPv6) ----------
+
+func TestAllocateOneIPv6WrapAround(t *testing.T) {
+	// fd00::/126: usable fd00::1 – fd00::2
+	_, subnet, _ := net.ParseCIDR("fd00::/126")
+	used := map[string]struct{}{"fd00::2": {}}
+	hint := net.IP(net.ParseIP("fd00::1").To16()) // searchFrom = fd00::2
+	ipNet, err := allocateOneIPv6(subnet, used, &hint)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if ipNet.IP.String() != "fd00::1" {
+		t.Errorf("expected fd00::1 (wrap-around), got %s", ipNet.IP)
+	}
+}
+
+// ---------- large IPv4 subnet triggers maxIter cap ----------
+
+func TestAllocateOneIPv4LargeSubnetCap(t *testing.T) {
+	// /15 has 131070 usable IPs → triggers maxIter = maxIPv4Iter
+	_, subnet, _ := net.ParseCIDR("10.0.0.0/15")
+	used := make(map[string]struct{})
+	hint := uint32(0)
+	ipNet, err := allocateOneIPv4(subnet, used, &hint)
+	if err != nil {
+		t.Fatalf("unexpected error for large subnet: %v", err)
+	}
+	if ipNet.IP == nil {
+		t.Fatal("expected non-nil IP")
+	}
+}
+
+// ---------- scanIPv4Range / scanIPv6Range maxIter exceeded ----------
+
+func TestScanIPv4RangeMaxIterExceeded(t *testing.T) {
+	used := map[string]struct{}{}
+	n := 5
+	from := ipToUint32(net.ParseIP("10.0.0.1").To4())
+	to := ipToUint32(net.ParseIP("10.0.0.10").To4())
+	if _, ok := scanIPv4Range(from, to, 5, &n, used, nil); ok {
+		t.Fatal("expected false when n already >= maxIter")
+	}
+}
+
+func TestScanIPv6RangeMaxIterExceeded(t *testing.T) {
+	used := map[string]struct{}{}
+	n := 5
+	from := net.ParseIP("fd00::1").To16()
+	to := net.ParseIP("fd00::10").To16()
+	if _, ok := scanIPv6Range(from, to, 5, &n, used, nil); ok {
+		t.Fatal("expected false when n already >= maxIter")
+	}
+}
+
+// ---------- cleanup updates usedIPs ----------
+
+func TestCleanupExpiredPeerUpdatesUsedIPs(t *testing.T) {
+	_, subnet4, _ := net.ParseCIDR(subnetTestCIDR)
+	key, _ := wgtypes.GenerateKey()
+	expiredAt := time.Now().UTC().Add(-time.Hour)
+	svc := &WireGuardService{
+		client:     fakeWGClient{device: &wgtypes.Device{}},
+		deviceName: "wg0",
+		subnet4:    subnet4,
+		serverIP4:  net.ParseIP(ipServerTest),
+		store:      NewPeerStore(),
+	}
+	svc.initUsedIPs()
+	svc.store.Set(PeerRecord{
+		PeerID:     "expiring",
+		PublicKey:  key,
+		AllowedIPs: []net.IPNet{ipNet(t, ipPeerTest)},
+		CreatedAt:  time.Now().UTC(),
+		ExpiresAt:  &expiredAt,
+	})
+	svc.usedIPs[ipPeerTest] = struct{}{}
+
+	svc.cleanupExpiredPeers()
+
+	if _, ok := svc.usedIPs[ipPeerTest]; ok {
+		t.Error("expected IP to be removed from usedIPs after expiry cleanup")
+	}
+}
