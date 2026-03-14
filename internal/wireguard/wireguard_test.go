@@ -126,6 +126,29 @@ func TestAllocateIPSkipsUsed(t *testing.T) {
 	}
 }
 
+func TestAllocateIPReusesFreedAddress(t *testing.T) {
+	// Allocate .2, then free it; next allocation must reuse .2 (not advance to .3).
+	svc := newTestServiceWithSubnet29(t, &wgtypes.Device{})
+
+	ips1, err := svc.allocateIPs([]string{FamilyIPv4})
+	if err != nil {
+		t.Fatalf(msgUnexpectedError, err)
+	}
+	allocated := ips1[0].IP.String()
+
+	// Simulate freeing the address (as removePeerUnsafe would do).
+	delete(svc.usedIPs, allocated)
+	svc.retractAllocHint(ips1[0].IP)
+
+	ips2, err := svc.allocateIPs([]string{FamilyIPv4})
+	if err != nil {
+		t.Fatalf(msgUnexpectedError, err)
+	}
+	if ips2[0].IP.String() != allocated {
+		t.Errorf("expected freed IP %s to be reused, got %s", allocated, ips2[0].IP.String())
+	}
+}
+
 func TestAllocateIPNoAvailable(t *testing.T) {
 	_, subnet, _ := net.ParseCIDR("10.0.0.0/30")
 	serverIP := net.ParseIP(ipServerTest)

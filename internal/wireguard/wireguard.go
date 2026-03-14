@@ -457,8 +457,30 @@ func (s *WireGuardService) removePeerUnsafe(record PeerRecord) error {
 	s.store.Delete(record.PeerID)
 	for _, aip := range record.AllowedIPs {
 		delete(s.usedIPs, aip.IP.String())
+		s.retractAllocHint(aip.IP)
 	}
 	return nil
+}
+
+// retractAllocHint rolls back the ring-buffer allocation hint when an IP is
+// freed. Without this, the allocator always advances forward and skips
+// recently-freed addresses until a full wrap-around of the subnet.
+func (s *WireGuardService) retractAllocHint(ip net.IP) {
+	if ip4 := ip.To4(); ip4 != nil {
+		freed := ipToUint32(ip4)
+		if freed <= s.lastAllocated4 && freed > 0 {
+			s.lastAllocated4 = freed - 1
+		}
+		return
+	}
+	ip16 := ip.To16()
+	if ip16 == nil || s.lastAllocated6 == nil {
+		return
+	}
+	// Retract if freed ≤ lastAllocated6 (i.e. lastAllocated6 is not before freed).
+	if !ipAfterIPv6(ip16, s.lastAllocated6) {
+		s.lastAllocated6 = prevIPv6(ip16)
+	}
 }
 
 // deletePeerLocked performs all in-memory and device mutations under s.mu.
