@@ -146,28 +146,43 @@ func (s *PeerStore) ForEach(fn func(PeerRecord)) {
 	}
 }
 
+// peerSortKey is a lightweight tuple used to sort peers without copying full records.
+type peerSortKey struct {
+	peerID    string
+	createdAt time.Time
+}
+
 // ListPaginated returns a page of peer records sorted by (CreatedAt, PeerID)
 // and the total number of records. offset=0 and limit=0 returns all records.
 func (s *PeerStore) ListPaginated(offset, limit int) ([]PeerRecord, int) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	total := len(s.peers)
-	records := make([]PeerRecord, 0, total)
-	for _, r := range s.peers {
-		records = append(records, r)
-	}
-	sort.Slice(records, func(i, j int) bool {
-		if records[i].CreatedAt.Equal(records[j].CreatedAt) {
-			return records[i].PeerID < records[j].PeerID
-		}
-		return records[i].CreatedAt.Before(records[j].CreatedAt)
-	})
 	if offset >= total {
 		return []PeerRecord{}, total
 	}
-	records = records[offset:]
-	if limit > 0 && limit < len(records) {
-		records = records[:limit]
+
+	// Sort lightweight keys to avoid copying all full records.
+	keys := make([]peerSortKey, 0, total)
+	for _, r := range s.peers {
+		keys = append(keys, peerSortKey{r.PeerID, r.CreatedAt})
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		if keys[i].createdAt.Equal(keys[j].createdAt) {
+			return keys[i].peerID < keys[j].peerID
+		}
+		return keys[i].createdAt.Before(keys[j].createdAt)
+	})
+
+	keys = keys[offset:]
+	if limit > 0 && limit < len(keys) {
+		keys = keys[:limit]
+	}
+
+	// Copy only the records in the page.
+	records := make([]PeerRecord, len(keys))
+	for i, k := range keys {
+		records[i] = s.peers[k.peerID]
 	}
 	return records, total
 }
