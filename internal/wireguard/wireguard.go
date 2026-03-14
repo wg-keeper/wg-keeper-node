@@ -7,6 +7,7 @@ import (
 	"log"
 	"net"
 	"os"
+	"slices"
 	"sync"
 	"time"
 
@@ -338,14 +339,7 @@ func (s *WireGuardService) ValidateAddressFamilies(requested []string) ([]string
 			return nil, fmt.Errorf("duplicate address family %q", f)
 		}
 		seen[f] = true
-		has := false
-		for _, n := range nodeFamilies {
-			if n == f {
-				has = true
-				break
-			}
-		}
-		if !has {
+		if !slices.Contains(nodeFamilies, f) {
 			return nil, ErrUnsupportedAddressFamily
 		}
 		out = append(out, f)
@@ -453,6 +447,20 @@ func (s *WireGuardService) DeletePeer(peerID string) error {
 	return nil
 }
 
+// removePeerUnsafe removes a peer from the WireGuard device, store, and usedIPs cache.
+// Must be called with s.mu held.
+func (s *WireGuardService) removePeerUnsafe(record PeerRecord) error {
+	remove := wgtypes.PeerConfig{PublicKey: record.PublicKey, Remove: true}
+	if err := s.configureDevice(wgtypes.Config{Peers: []wgtypes.PeerConfig{remove}}); err != nil {
+		return err
+	}
+	s.store.Delete(record.PeerID)
+	for _, aip := range record.AllowedIPs {
+		delete(s.usedIPs, aip.IP.String())
+	}
+	return nil
+}
+
 // deletePeerLocked performs all in-memory and device mutations under s.mu.
 // It does not call savePersist; the caller must persist after releasing the lock.
 func (s *WireGuardService) deletePeerLocked(peerID string) error {
@@ -463,21 +471,7 @@ func (s *WireGuardService) deletePeerLocked(peerID string) error {
 	if !ok {
 		return ErrPeerNotFound
 	}
-
-	remove := wgtypes.PeerConfig{
-		PublicKey: record.PublicKey,
-		Remove:    true,
-	}
-
-	if err := s.configureDevice(wgtypes.Config{Peers: []wgtypes.PeerConfig{remove}}); err != nil {
-		return err
-	}
-
-	s.store.Delete(peerID)
-	for _, aip := range record.AllowedIPs {
-		delete(s.usedIPs, aip.IP.String())
-	}
-	return nil
+	return s.removePeerUnsafe(record)
 }
 
 func (s *WireGuardService) Stats() (Stats, error) {
@@ -622,10 +616,8 @@ func peerRecordToListItem(rec PeerRecord, devicePeer wgtypes.Peer, now time.Time
 }
 
 func appendIfNotPresent(slice []string, v string) []string {
-	for _, x := range slice {
-		if x == v {
-			return slice
-		}
+	if slices.Contains(slice, v) {
+		return slice
 	}
 	return append(slice, v)
 }
@@ -971,7 +963,7 @@ func ipv6Range(subnet *net.IPNet) (net.IP, net.IP, error) {
 	}
 	_, bits := subnet.Mask.Size()
 	if bits != 128 {
-		return nil, nil, errors.New("IPv6 mask must be 128 bits")
+		return nil, nil, errors.New("invalid IPv6 subnet mask")
 	}
 	network := make(net.IP, 16)
 	copy(network, ip)
@@ -986,7 +978,7 @@ func ipv6Range(subnet *net.IPNet) (net.IP, net.IP, error) {
 	}
 	mask := subnet.Mask
 	broadcast := make(net.IP, 16)
-	for i := 0; i < 16; i++ {
+	for i := range 16 {
 		broadcast[i] = network[i] | ^mask[i]
 	}
 	end := make(net.IP, 16)
@@ -1020,7 +1012,7 @@ func nextIPv6(ip net.IP) net.IP {
 func ipAfterIPv6(a, b net.IP) bool {
 	a = a.To16()
 	b = b.To16()
-	for i := 0; i < 16; i++ {
+	for i := range 16 {
 		if a[i] != b[i] {
 			return a[i] > b[i]
 		}

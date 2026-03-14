@@ -46,32 +46,16 @@ func newIPRateLimiter() *ipRateLimiter {
 func (i *ipRateLimiter) get(ip string) *rate.Limiter {
 	now := time.Now()
 
-	i.mu.RLock()
-	entry, ok := i.limiters[ip]
-	i.mu.RUnlock()
-	if ok {
-		// Fast path: refresh lastSeen under write lock.
-		i.mu.Lock()
-		entry.lastSeen = now
-		i.mu.Unlock()
-		return entry.limiter
-	}
-
 	i.mu.Lock()
 	defer i.mu.Unlock()
 
-	// Double-check after acquiring write lock.
-	if entry, ok = i.limiters[ip]; ok {
+	if entry, ok := i.limiters[ip]; ok {
 		entry.lastSeen = now
 		return entry.limiter
 	}
 
 	lim := rate.NewLimiter(i.limit, i.burst)
-	i.limiters[ip] = &ipLimiter{
-		limiter:  lim,
-		lastSeen: now,
-	}
-
+	i.limiters[ip] = &ipLimiter{limiter: lim, lastSeen: now}
 	return lim
 }
 

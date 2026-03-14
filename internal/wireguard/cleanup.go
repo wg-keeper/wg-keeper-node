@@ -5,8 +5,6 @@ import (
 	"log"
 	"runtime/debug"
 	"time"
-
-	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 )
 
 // RunExpiredPeersCleanup runs a loop that periodically removes peers whose ExpiresAt is in the past.
@@ -78,13 +76,8 @@ func (s *WireGuardService) deleteExpiredPeerLocked(peerID string, now time.Time)
 		return false, nil // made permanent or extended by a concurrent EnsurePeer
 	}
 
-	remove := wgtypes.PeerConfig{PublicKey: record.PublicKey, Remove: true}
-	if err := s.configureDevice(wgtypes.Config{Peers: []wgtypes.PeerConfig{remove}}); err != nil {
+	if err := s.removePeerUnsafe(record); err != nil {
 		return false, err
-	}
-	s.store.Delete(peerID)
-	for _, aip := range record.AllowedIPs {
-		delete(s.usedIPs, aip.IP.String())
 	}
 	return true, nil
 }

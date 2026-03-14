@@ -10,8 +10,10 @@ import (
 )
 
 const (
-	middlewareTestStatusOKFmt = "status: got %d, want 200"
-	middlewareTestRemoteAddr  = "10.0.0.5:1234"
+	middlewareTestStatusOKFmt  = "status: got %d, want 200"
+	middlewareTestStatus401Fmt = "status: got %d, want 401"
+	middlewareTestStatus403Fmt = "status: got %d, want 403"
+	middlewareTestRemoteAddr   = "10.0.0.5:1234"
 )
 
 func TestAPIKeyMiddleware(t *testing.T) {
@@ -36,7 +38,7 @@ func TestAPIKeyMiddleware(t *testing.T) {
 		rec := httptest.NewRecorder()
 		r.ServeHTTP(rec, req)
 		if rec.Code != http.StatusUnauthorized {
-			t.Errorf("status: got %d, want 401", rec.Code)
+			t.Errorf(middlewareTestStatus401Fmt, rec.Code)
 		}
 	})
 
@@ -60,7 +62,7 @@ func TestAPIKeyMiddleware(t *testing.T) {
 		rec := httptest.NewRecorder()
 		r.ServeHTTP(rec, req)
 		if rec.Code != http.StatusUnauthorized {
-			t.Errorf("status: got %d, want 401", rec.Code)
+			t.Errorf(middlewareTestStatus401Fmt, rec.Code)
 		}
 	})
 }
@@ -119,7 +121,7 @@ func TestIPWhitelistMiddleware(t *testing.T) {
 		rec := httptest.NewRecorder()
 		r.ServeHTTP(rec, req)
 		if rec.Code != http.StatusForbidden {
-			t.Errorf("status: got %d, want 403", rec.Code)
+			t.Errorf(middlewareTestStatus403Fmt, rec.Code)
 		}
 	})
 
@@ -145,7 +147,7 @@ func TestIPWhitelistMiddleware(t *testing.T) {
 		rec := httptest.NewRecorder()
 		r.ServeHTTP(rec, req)
 		if rec.Code != http.StatusForbidden {
-			t.Errorf("status: got %d, want 403", rec.Code)
+			t.Errorf(middlewareTestStatus403Fmt, rec.Code)
 		}
 	})
 }
@@ -176,7 +178,7 @@ func TestIPWhitelistMiddlewareIPv6(t *testing.T) {
 		rec := httptest.NewRecorder()
 		r.ServeHTTP(rec, req)
 		if rec.Code != http.StatusForbidden {
-			t.Errorf("status: got %d, want 403", rec.Code)
+			t.Errorf(middlewareTestStatus403Fmt, rec.Code)
 		}
 	})
 }

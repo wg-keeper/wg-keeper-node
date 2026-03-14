@@ -16,6 +16,7 @@ import (
 const (
 	errMsgPeerIDMustBeUUIDv4 = "peerId must be uuid v4"
 	maxPaginationLimit       = 1000
+	defaultPaginationLimit   = 100
 )
 
 type peerRequest struct {
@@ -220,8 +221,9 @@ func validatePaginationParams(offsetStr, limitStr string) error {
 }
 
 // parsePaginationParams extracts offset and limit from pre-validated query strings.
-// Returns 0 for offset if absent or invalid; 0 for limit if absent (means no limit).
+// Returns 0 for offset if absent or invalid; defaultPaginationLimit for limit if absent.
 func parsePaginationParams(offsetStr, limitStr string) (offset, limit int) {
+	limit = defaultPaginationLimit
 	if n, err := strconv.Atoi(offsetStr); err == nil && n >= 0 {
 		offset = n
 	}
