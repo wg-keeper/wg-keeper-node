@@ -7,6 +7,7 @@ import (
 	"log"
 	"net"
 	"os"
+	"slices"
 	"sync"
 	"time"
 
@@ -338,14 +339,7 @@ func (s *WireGuardService) ValidateAddressFamilies(requested []string) ([]string
 			return nil, fmt.Errorf("duplicate address family %q", f)
 		}
 		seen[f] = true
-		has := false
-		for _, n := range nodeFamilies {
-			if n == f {
-				has = true
-				break
-			}
-		}
-		if !has {
+		if !slices.Contains(nodeFamilies, f) {
 			return nil, ErrUnsupportedAddressFamily
 		}
 		out = append(out, f)
@@ -622,10 +616,8 @@ func peerRecordToListItem(rec PeerRecord, devicePeer wgtypes.Peer, now time.Time
 }
 
 func appendIfNotPresent(slice []string, v string) []string {
-	for _, x := range slice {
-		if x == v {
-			return slice
-		}
+	if slices.Contains(slice, v) {
+		return slice
 	}
 	return append(slice, v)
 }
@@ -986,7 +978,7 @@ func ipv6Range(subnet *net.IPNet) (net.IP, net.IP, error) {
 	}
 	mask := subnet.Mask
 	broadcast := make(net.IP, 16)
-	for i := 0; i < 16; i++ {
+	for i := range 16 {
 		broadcast[i] = network[i] | ^mask[i]
 	}
 	end := make(net.IP, 16)
@@ -1020,7 +1012,7 @@ func nextIPv6(ip net.IP) net.IP {
 func ipAfterIPv6(a, b net.IP) bool {
 	a = a.To16()
 	b = b.To16()
-	for i := 0; i < 16; i++ {
+	for i := range 16 {
 		if a[i] != b[i] {
 			return a[i] > b[i]
 		}
