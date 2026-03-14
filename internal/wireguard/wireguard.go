@@ -509,30 +509,30 @@ func (s *WireGuardService) Stats() (Stats, error) {
 		},
 		Peers: PeerStats{
 			Possible: peersPossible,
-			Issued:   len(s.store.List()),
+			Issued:   s.store.Len(),
 			Active:   active,
 		},
 		StartedAt: serverStart.UTC().Format(time.RFC3339),
 	}, nil
 }
 
-func (s *WireGuardService) ListPeers() ([]PeerListItem, error) {
+func (s *WireGuardService) ListPeers(offset, limit int) ([]PeerListItem, int, error) {
 	device, err := s.client.Device(s.deviceName)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	devicePeerByKey := make(map[wgtypes.Key]wgtypes.Peer)
 	for _, p := range device.Peers {
 		devicePeerByKey[p.PublicKey] = p
 	}
 
+	records, total := s.store.ListPaginated(offset, limit)
 	now := time.Now()
-	list := make([]PeerListItem, 0, len(s.store.List()))
-	for _, rec := range s.store.List() {
-		item := peerRecordToListItem(rec, devicePeerByKey[rec.PublicKey], now)
-		list = append(list, item)
+	list := make([]PeerListItem, len(records))
+	for i, rec := range records {
+		list[i] = peerRecordToListItem(rec, devicePeerByKey[rec.PublicKey], now)
 	}
-	return list, nil
+	return list, total, nil
 }
 
 func (s *WireGuardService) GetPeer(peerID string) (*PeerDetail, error) {
@@ -711,11 +711,11 @@ func (s *WireGuardService) collectUsedIPs() (map[string]struct{}, error) {
 	if s.serverIP6 != nil {
 		used[s.serverIP6.String()] = struct{}{}
 	}
-	for _, record := range s.store.List() {
+	s.store.ForEach(func(record PeerRecord) {
 		for _, aip := range record.AllowedIPs {
 			used[aip.IP.String()] = struct{}{}
 		}
-	}
+	})
 	device, err := s.client.Device(s.deviceName)
 	if err != nil {
 		return nil, err

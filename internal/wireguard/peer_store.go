@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -125,6 +126,50 @@ func (s *PeerStore) List() []PeerRecord {
 		out = append(out, record)
 	}
 	return out
+}
+
+// Len returns the number of peer records without copying the store.
+func (s *PeerStore) Len() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return len(s.peers)
+}
+
+// ForEach calls fn for every peer record under a read lock.
+// fn must not call any PeerStore method that acquires a write lock (Set, Delete)
+// as that would deadlock.
+func (s *PeerStore) ForEach(fn func(PeerRecord)) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, record := range s.peers {
+		fn(record)
+	}
+}
+
+// ListPaginated returns a page of peer records sorted by (CreatedAt, PeerID)
+// and the total number of records. offset=0 and limit=0 returns all records.
+func (s *PeerStore) ListPaginated(offset, limit int) ([]PeerRecord, int) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	total := len(s.peers)
+	records := make([]PeerRecord, 0, total)
+	for _, r := range s.peers {
+		records = append(records, r)
+	}
+	sort.Slice(records, func(i, j int) bool {
+		if records[i].CreatedAt.Equal(records[j].CreatedAt) {
+			return records[i].PeerID < records[j].PeerID
+		}
+		return records[i].CreatedAt.Before(records[j].CreatedAt)
+	})
+	if offset >= total {
+		return []PeerRecord{}, total
+	}
+	records = records[offset:]
+	if limit > 0 && limit < len(records) {
+		records = records[:limit]
+	}
+	return records, total
 }
 
 // LoadFromFile loads peer records from a JSON file (format: allowed_ips for IPv4/IPv6).

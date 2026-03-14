@@ -231,7 +231,7 @@ func TestRunExpiredPeersCleanupRemovesExpiredPeer(t *testing.T) {
 	go svc.RunExpiredPeersCleanup(ctx, 10*time.Millisecond)
 	time.Sleep(50 * time.Millisecond)
 
-	list, err := svc.ListPeers()
+	list, _, err := svc.ListPeers(0, 0)
 	if err != nil {
 		t.Fatalf(msgListPeersFmt, err)
 	}
@@ -255,7 +255,7 @@ func TestRunExpiredPeersCleanupKeepsPermanentPeer(t *testing.T) {
 	svc.runCleanupSafe()
 	time.Sleep(10 * time.Millisecond)
 
-	list, err := svc.ListPeers()
+	list, _, err := svc.ListPeers(0, 0)
 	if err != nil {
 		t.Fatalf(msgListPeersFmt, err)
 	}
@@ -278,7 +278,7 @@ func TestCleanupExpiredPeersNotYetExpired(t *testing.T) {
 	})
 	svc.runCleanupSafe()
 
-	list, err := svc.ListPeers()
+	list, _, err := svc.ListPeers(0, 0)
 	if err != nil {
 		t.Fatalf(msgListPeersFmt, err)
 	}
@@ -300,7 +300,7 @@ func TestCleanupExpiredPeersDeletePeerError(t *testing.T) {
 		ExpiresAt:    &expiredAt,
 	})
 	svc.runCleanupSafe()
-	list, err := svc.ListPeers()
+	list, _, err := svc.ListPeers(0, 0)
 	if err != nil {
 		t.Fatalf(msgListPeersFmt, err)
 	}

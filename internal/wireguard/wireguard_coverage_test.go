@@ -649,7 +649,7 @@ func TestListPeersDeviceError(t *testing.T) {
 		deviceName: "wg0",
 		store:      NewPeerStore(),
 	}
-	_, err := svc.ListPeers()
+	_, _, err := svc.ListPeers(0, 0)
 	if err == nil {
 		t.Fatal("expected error when device is unavailable")
 	}
@@ -679,7 +679,7 @@ func TestListPeersActivePeer(t *testing.T) {
 		CreatedAt:    time.Now().UTC(),
 	})
 
-	list, err := svc.ListPeers()
+	list, _, err := svc.ListPeers(0, 0)
 	if err != nil {
 		t.Fatalf("ListPeers: %v", err)
 	}

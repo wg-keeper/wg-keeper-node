@@ -156,7 +156,12 @@ func deletePeerHandler(wgService wgPeerService, debug bool) gin.HandlerFunc {
 
 func listPeersHandler(wgService wgPeersListProvider, debug bool) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		list, err := wgService.ListPeers()
+		if err := validatePaginationParams(c.Query("offset"), c.Query("limit")); err != nil {
+			writeError(c, http.StatusBadRequest, err.Error(), "invalid_pagination", debug, nil)
+			return
+		}
+		offset, limit := parsePaginationParams(c.Query("offset"), c.Query("limit"))
+		list, total, err := wgService.ListPeers(offset, limit)
 		if err != nil {
 			writeError(c, http.StatusInternalServerError, "peers list unavailable", "peers_list_unavailable", debug, err)
 			return
@@ -164,14 +169,8 @@ func listPeersHandler(wgService wgPeersListProvider, debug bool) gin.HandlerFunc
 		if list == nil {
 			list = []wireguard.PeerListItem{}
 		}
-		total := len(list)
-		if err := validatePaginationParams(c.Query("offset"), c.Query("limit")); err != nil {
-			writeError(c, http.StatusBadRequest, err.Error(), "invalid_pagination", debug, nil)
-			return
-		}
-		offset, limit, paginated := applyPagination(list, c.Query("offset"), c.Query("limit"))
 		hasPrev := offset > 0 && total > 0
-		hasNext := offset+len(paginated) < total
+		hasNext := offset+len(list) < total
 		var prevOffset, nextOffset *int
 		if hasPrev {
 			prev := offset - limit
@@ -186,7 +185,7 @@ func listPeersHandler(wgService wgPeersListProvider, debug bool) gin.HandlerFunc
 		}
 
 		resp := Response[[]wireguard.PeerListItem]{
-			Data: paginated,
+			Data: list,
 			Meta: PaginationMeta{
 				Offset:     offset,
 				Limit:      limit,
@@ -220,27 +219,16 @@ func validatePaginationParams(offsetStr, limitStr string) error {
 	return nil
 }
 
-// applyPagination slices the list according to optional offset and limit query params.
-// Params are assumed to be pre-validated by validatePaginationParams.
-// It returns the resolved offset, limit, and the paginated slice.
-func applyPagination(list []wireguard.PeerListItem, offsetStr, limitStr string) (offset int, limit int, paginated []wireguard.PeerListItem) {
-	offset = 0
+// parsePaginationParams extracts offset and limit from pre-validated query strings.
+// Returns 0 for offset if absent or invalid; 0 for limit if absent (means no limit).
+func parsePaginationParams(offsetStr, limitStr string) (offset, limit int) {
 	if n, err := strconv.Atoi(offsetStr); err == nil && n >= 0 {
 		offset = n
 	}
-	if offset >= len(list) {
-		return offset, limit, []wireguard.PeerListItem{}
-	}
-	paginated = list[offset:]
 	if n, err := strconv.Atoi(limitStr); err == nil && n > 0 {
 		limit = n
-		if limit < len(paginated) {
-			paginated = paginated[:limit]
-		}
-	} else {
-		limit = len(paginated)
 	}
-	return offset, limit, paginated
+	return offset, limit
 }
 
 func getPeerHandler(wgService wgPeerDetailProvider, debug bool) gin.HandlerFunc {
@@ -313,7 +301,7 @@ type statsProvider interface {
 }
 
 type wgPeersListProvider interface {
-	ListPeers() ([]wireguard.PeerListItem, error)
+	ListPeers(offset, limit int) ([]wireguard.PeerListItem, int, error)
 }
 
 type wgPeerDetailProvider interface {
