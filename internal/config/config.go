@@ -15,7 +15,10 @@ import (
 // validNetworkInterface matches safe Linux network interface names: alphanumeric, hyphens, underscores, dots.
 var validNetworkInterface = regexp.MustCompile(`^[a-zA-Z0-9\-_.]+$`)
 
-const errMsgRequired = "%s is required"
+const (
+	errMsgRequired  = "%s is required"
+	minAPIKeyLength = 16
+)
 
 type Config struct {
 	Port          int
@@ -120,6 +123,9 @@ func parseServerAndAuth(fc fileConfig) (portValue int, apiKey, tlsCert, tlsKey s
 	apiKey, err = requireString("auth.api_key", fc.Auth.APIKey)
 	if err != nil {
 		return 0, "", "", "", nil, err
+	}
+	if len(apiKey) < minAPIKeyLength {
+		return 0, "", "", "", nil, fmt.Errorf("auth.api_key must be at least %d characters", minAPIKeyLength)
 	}
 	tlsCert, tlsKey, err = parseOptionalTLS(fc.Server.TLSCert, fc.Server.TLSKey)
 	if err != nil {
