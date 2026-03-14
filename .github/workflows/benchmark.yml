@@ -12,6 +12,7 @@ concurrency:
 jobs:
   benchmark-compare:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: read
       pull-requests: write
@@ -35,7 +36,7 @@ jobs:
           go test \
             -bench=. \
             -benchmem \
-            -benchtime=3s \
+            -benchtime=1s \
             -count=6 \
             -run='^$' \
             ./internal/wireguard/ ./internal/server/ \
@@ -47,7 +48,7 @@ jobs:
           go test \
             -bench=. \
             -benchmem \
-            -benchtime=3s \
+            -benchtime=1s \
             -count=6 \
             -run='^$' \
             ./internal/wireguard/ ./internal/server/ \
