@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -12,7 +13,7 @@ const routerTestAPIKey = "api-key"
 
 func TestNewRouterHealth(t *testing.T) {
 	svc := wireguard.NewTestService()
-	router := NewRouter(routerTestAPIKey, nil, svc, false)
+	router := NewRouter(context.Background(), routerTestAPIKey, nil, svc, false)
 	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
@@ -23,7 +24,7 @@ func TestNewRouterHealth(t *testing.T) {
 
 func TestNewRouterStatsWithAPIKey(t *testing.T) {
 	svc := wireguard.NewTestService()
-	router := NewRouter(routerTestAPIKey, nil, svc, false)
+	router := NewRouter(context.Background(), routerTestAPIKey, nil, svc, false)
 	req := httptest.NewRequest(http.MethodGet, "/stats", nil)
 	req.Header.Set("X-API-Key", routerTestAPIKey)
 	rec := httptest.NewRecorder()
@@ -35,7 +36,7 @@ func TestNewRouterStatsWithAPIKey(t *testing.T) {
 
 func TestNewRouterStatsWithoutAPIKey(t *testing.T) {
 	svc := wireguard.NewTestService()
-	router := NewRouter(routerTestAPIKey, nil, svc, false)
+	router := NewRouter(context.Background(), routerTestAPIKey, nil, svc, false)
 	req := httptest.NewRequest(http.MethodGet, "/stats", nil)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)

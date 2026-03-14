@@ -61,7 +61,7 @@ func main() {
 	log.Printf("time=%s level=info msg=\"starting\" service=%s version=%s", now, version.Name, version.Version)
 	log.Printf("time=%s level=info msg=\"listening\" addr=%s protocol=%s", now, addr, protocol)
 	log.Printf("time=%s level=info msg=\"wireguard ready\" iface=%s listen=%d subnets=%s", now, cfg.WGInterface, cfg.WGListenPort, formatSubnetsLog(cfg))
-	httpServer := newHTTPServer(cfg, addr, wgService, debug)
+	httpServer := newHTTPServer(appCtx, cfg, addr, wgService, debug)
 
 	serverErr := make(chan error, 1)
 	go func() {
@@ -118,10 +118,10 @@ func isFatalServerError(err error) bool {
 	return err != nil && err != http.ErrServerClosed
 }
 
-func newHTTPServer(cfg config.Config, addr string, wgService *wireguard.WireGuardService, debug bool) *http.Server {
+func newHTTPServer(ctx context.Context, cfg config.Config, addr string, wgService *wireguard.WireGuardService, debug bool) *http.Server {
 	srv := &http.Server{
 		Addr:              addr,
-		Handler:           server.NewRouter(cfg.APIKey, cfg.AllowedNets, wgService, debug),
+		Handler:           server.NewRouter(ctx, cfg.APIKey, cfg.AllowedNets, wgService, debug),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      30 * time.Second,

@@ -1,7 +1,7 @@
 package server
 
 import (
-	"fmt"
+	"context"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -17,7 +17,7 @@ func TestRateLimitMiddlewareWithAllowedNets(t *testing.T) {
 
 	_, net1, _ := net.ParseCIDR("10.0.0.0/24")
 	r := gin.New()
-	r.Use(newRateLimitMiddleware([]*net.IPNet{net1}))
+	r.Use(newRateLimitMiddleware(context.Background(), []*net.IPNet{net1}))
 	r.GET("/", func(c *gin.Context) { c.Status(http.StatusOK) })
 
 	// Many requests from whitelisted IP should all succeed.
@@ -36,7 +36,7 @@ func TestRateLimitMiddlewareWithoutAllowedNetsReturns429(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	r := gin.New()
-	r.Use(newRateLimitMiddleware(nil))
+	r.Use(newRateLimitMiddleware(context.Background(), nil))
 	r.GET("/", func(c *gin.Context) { c.Status(http.StatusOK) })
 
 	var lastCode int
@@ -55,32 +55,33 @@ func TestRateLimitMiddlewareWithoutAllowedNetsReturns429(t *testing.T) {
 	}
 }
 
-func TestIPRateLimiterCleanupTriggeredAtThreshold(t *testing.T) {
+func TestIPRateLimiterStartCleanupEvictsStale(t *testing.T) {
 	limiter := newIPRateLimiter(rateLimitRPS, rateLimitBurst)
-	now := time.Now()
 
-	// Pre-fill the map just above threshold with stale entries
+	// Add a stale entry directly.
 	limiter.mu.Lock()
-	for i := 0; i <= rateLimiterCleanupThreshold; i++ {
-		ip := fmt.Sprintf("10.%d.%d.%d", (i>>16)&0xff, (i>>8)&0xff, i&0xff)
-		limiter.limiters[ip] = &ipLimiter{
-			limiter:  rate.NewLimiter(limiter.limit, limiter.burst),
-			lastSeen: now.Add(-2 * rateLimiterTTL), // stale
-		}
+	limiter.limiters["192.0.2.1"] = &ipLimiter{
+		limiter:  rate.NewLimiter(limiter.limit, limiter.burst),
+		lastSeen: time.Now().Add(-2 * rateLimiterTTL),
 	}
 	limiter.mu.Unlock()
 
-	// get() for a new IP should trigger cleanupLocked since len > threshold
-	_ = limiter.get("192.0.2.99")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	// Use a very short interval so the test completes quickly.
+	limiter.startCleanup(ctx, 10*time.Millisecond)
 
-	limiter.mu.RLock()
-	remaining := len(limiter.limiters)
-	limiter.mu.RUnlock()
-
-	// All stale entries should be gone; only the newly added IP remains
-	if remaining != 1 {
-		t.Errorf("expected 1 entry after cleanup (new IP), got %d", remaining)
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		limiter.mu.RLock()
+		remaining := len(limiter.limiters)
+		limiter.mu.RUnlock()
+		if remaining == 0 {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
 	}
+	t.Error("stale entry was not evicted by background cleanup goroutine")
 }
 
 func TestIPRateLimiterCleanupLockedRemovesStaleEntries(t *testing.T) {

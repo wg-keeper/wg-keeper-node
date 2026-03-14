@@ -1,6 +1,7 @@
 package wireguard
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log"
@@ -29,7 +30,13 @@ var (
 	ErrUnsupportedAddressFamily = errors.New("requested address family is not supported by this node")
 )
 
-const activePeerWindow = 2 * time.Minute
+const (
+	activePeerWindow = 2 * time.Minute
+	// wgOpTimeout is the maximum time allowed for a single WireGuard kernel
+	// operation (ConfigureDevice). If the kernel module becomes unresponsive,
+	// this prevents HTTP handlers from hanging indefinitely.
+	wgOpTimeout = 10 * time.Second
+)
 
 var serverStart = time.Now()
 
@@ -220,7 +227,7 @@ func (s *WireGuardService) reconcileStoreWithDevice() error {
 	if len(toAdd) == 0 {
 		return nil
 	}
-	return s.client.ConfigureDevice(s.deviceName, wgtypes.Config{Peers: toAdd})
+	return s.configureDevice(wgtypes.Config{Peers: toAdd})
 }
 
 // reconcileStoreWithSubnets removes from store and from the device any record whose allowed_ips
@@ -230,7 +237,7 @@ func (s *WireGuardService) reconcileStoreWithSubnets() bool {
 	var changed bool
 	for _, rec := range s.store.List() {
 		if !s.recordAllowedIPsInSubnets(rec) {
-			if err := s.client.ConfigureDevice(s.deviceName, wgtypes.Config{
+			if err := s.configureDevice(wgtypes.Config{
 				Peers: []wgtypes.PeerConfig{{PublicKey: rec.PublicKey, Remove: true}},
 			}); err != nil {
 				// Do not remove from store when device removal fails: removing the store
@@ -264,6 +271,24 @@ func (s *WireGuardService) savePersist() error {
 		return nil
 	}
 	return s.store.SaveToFile(s.persistPath)
+}
+
+// configureDevice wraps client.ConfigureDevice with a hard timeout so that a
+// hung kernel module cannot block HTTP handlers indefinitely. The underlying
+// syscall cannot be cancelled, so when the timeout fires the goroutine running
+// the call continues in the background; the buffered channel ensures it
+// eventually exits without leaking.
+func (s *WireGuardService) configureDevice(cfg wgtypes.Config) error {
+	ctx, cancel := context.WithTimeout(context.Background(), wgOpTimeout)
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- s.client.ConfigureDevice(s.deviceName, cfg) }()
+	select {
+	case err := <-done:
+		return err
+	case <-ctx.Done():
+		return fmt.Errorf("configure wireguard device: %w", ctx.Err())
+	}
 }
 
 // NodeAddressFamilies returns the address families this node supports (e.g. ["IPv4", "IPv6"]).
@@ -311,6 +336,21 @@ func (s *WireGuardService) ValidateAddressFamilies(requested []string) ([]string
 }
 
 func (s *WireGuardService) EnsurePeer(peerID string, expiresAt *time.Time, addressFamilies []string) (PeerInfo, error) {
+	info, err := s.ensurePeerLocked(peerID, expiresAt, addressFamilies)
+	if err != nil {
+		return PeerInfo{}, err
+	}
+	// savePersist takes its own snapshot under store.mu; calling it outside s.mu
+	// lets concurrent reads proceed while disk I/O completes.
+	if err := s.savePersist(); err != nil {
+		return PeerInfo{}, fmt.Errorf(errSavePeerStoreFmt, err)
+	}
+	return info, nil
+}
+
+// ensurePeerLocked performs all in-memory and device mutations under s.mu.
+// It does not call savePersist; the caller must persist after releasing the lock.
+func (s *WireGuardService) ensurePeerLocked(peerID string, expiresAt *time.Time, addressFamilies []string) (PeerInfo, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -346,7 +386,7 @@ func (s *WireGuardService) EnsurePeer(peerID string, expiresAt *time.Time, addre
 		PersistentKeepaliveInterval: keepaliveInterval(),
 	}
 
-	if err := s.client.ConfigureDevice(s.deviceName, wgtypes.Config{Peers: []wgtypes.PeerConfig{peerConfig}}); err != nil {
+	if err := s.configureDevice(wgtypes.Config{Peers: []wgtypes.PeerConfig{peerConfig}}); err != nil {
 		return PeerInfo{}, err
 	}
 
@@ -358,9 +398,6 @@ func (s *WireGuardService) EnsurePeer(peerID string, expiresAt *time.Time, addre
 		CreatedAt:    time.Now().UTC(),
 		ExpiresAt:    expiresAt,
 	})
-	if err := s.savePersist(); err != nil {
-		return PeerInfo{}, fmt.Errorf(errSavePeerStoreFmt, err)
-	}
 
 	allowedIPsStr := make([]string, len(allowedIPs))
 	for i := range allowedIPs {
@@ -385,6 +422,19 @@ func (s *WireGuardService) ServerInfo() (string, int, error) {
 }
 
 func (s *WireGuardService) DeletePeer(peerID string) error {
+	if err := s.deletePeerLocked(peerID); err != nil {
+		return err
+	}
+	// savePersist outside s.mu so concurrent reads are not blocked during disk I/O.
+	if err := s.savePersist(); err != nil {
+		return fmt.Errorf(errSavePeerStoreFmt, err)
+	}
+	return nil
+}
+
+// deletePeerLocked performs all in-memory and device mutations under s.mu.
+// It does not call savePersist; the caller must persist after releasing the lock.
+func (s *WireGuardService) deletePeerLocked(peerID string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -398,14 +448,11 @@ func (s *WireGuardService) DeletePeer(peerID string) error {
 		Remove:    true,
 	}
 
-	if err := s.client.ConfigureDevice(s.deviceName, wgtypes.Config{Peers: []wgtypes.PeerConfig{remove}}); err != nil {
+	if err := s.configureDevice(wgtypes.Config{Peers: []wgtypes.PeerConfig{remove}}); err != nil {
 		return err
 	}
 
 	s.store.Delete(peerID)
-	if err := s.savePersist(); err != nil {
-		return fmt.Errorf(errSavePeerStoreFmt, err)
-	}
 	return nil
 }
 
@@ -586,7 +633,7 @@ func (s *WireGuardService) rotatePeer(peerID string, record PeerRecord, expiresA
 		},
 	}
 
-	if err := s.client.ConfigureDevice(s.deviceName, config); err != nil {
+	if err := s.configureDevice(config); err != nil {
 		return PeerInfo{}, err
 	}
 
@@ -603,9 +650,8 @@ func (s *WireGuardService) rotatePeer(peerID string, record PeerRecord, expiresA
 		CreatedAt:    record.CreatedAt,
 		ExpiresAt:    effectiveExpiresAt,
 	})
-	if err := s.savePersist(); err != nil {
-		return PeerInfo{}, fmt.Errorf(errSavePeerStoreFmt, err)
-	}
+	// savePersist is intentionally omitted here; EnsurePeer calls it after
+	// releasing s.mu so disk I/O does not block concurrent store reads.
 
 	allowedIPsStr := make([]string, len(record.AllowedIPs))
 	peerFamilies := make([]string, 0, 2)

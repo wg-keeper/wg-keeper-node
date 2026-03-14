@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"net"
 	"sync"
 	"time"
@@ -17,8 +18,9 @@ const (
 
 	// rateLimiterTTL is how long per-IP limiters are kept since last use before eviction.
 	rateLimiterTTL = 10 * time.Minute
-	// rateLimiterCleanupThreshold triggers a cleanup pass when the number of tracked IPs exceeds this number.
-	rateLimiterCleanupThreshold = 10_000
+	// rateLimiterCleanupInterval is how often the background goroutine evicts stale entries.
+	// Half of TTL ensures stale entries are removed well within the TTL window.
+	rateLimiterCleanupInterval = rateLimiterTTL / 2
 )
 
 type ipLimiter struct {
@@ -70,11 +72,27 @@ func (i *ipRateLimiter) get(ip string) *rate.Limiter {
 		lastSeen: now,
 	}
 
-	if len(i.limiters) > rateLimiterCleanupThreshold {
-		i.cleanupLocked(now)
-	}
-
 	return lim
+}
+
+// startCleanup launches a background goroutine that periodically evicts stale
+// per-IP limiters. It exits when ctx is cancelled. This keeps memory bounded
+// without blocking the request path.
+func (i *ipRateLimiter) startCleanup(ctx context.Context, interval time.Duration) {
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case now := <-ticker.C:
+				i.mu.Lock()
+				i.cleanupLocked(now)
+				i.mu.Unlock()
+			}
+		}
+	}()
 }
 
 // cleanupLocked removes stale limiters; caller must hold i.mu.
@@ -106,6 +124,8 @@ func rateLimitByIPMiddleware(allowedNets []*net.IPNet, limiter *ipRateLimiter) g
 	}
 }
 
-func newRateLimitMiddleware(allowedNets []*net.IPNet) gin.HandlerFunc {
-	return rateLimitByIPMiddleware(allowedNets, newIPRateLimiter(rateLimitRPS, rateLimitBurst))
+func newRateLimitMiddleware(ctx context.Context, allowedNets []*net.IPNet) gin.HandlerFunc {
+	limiter := newIPRateLimiter(rateLimitRPS, rateLimitBurst)
+	limiter.startCleanup(ctx, rateLimiterCleanupInterval)
+	return rateLimitByIPMiddleware(allowedNets, limiter)
 }
