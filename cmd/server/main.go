@@ -128,7 +128,19 @@ func newHTTPServer(ctx context.Context, cfg config.Config, addr string, wgServic
 		IdleTimeout:       120 * time.Second,
 	}
 	if cfg.TLSEnabled() {
-		srv.TLSConfig = &tls.Config{MinVersion: tls.VersionTLS12}
+		srv.TLSConfig = &tls.Config{
+			MinVersion: tls.VersionTLS12,
+			// Restrict TLS 1.2 to ECDHE+AEAD ciphers only (forward secrecy + authenticated encryption).
+			// TLS 1.3 cipher suites are not configurable in Go and are always secure.
+			CipherSuites: []uint16{
+				tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
+				tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
+				tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
+				tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
+				tls.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256,
+				tls.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
+			},
+		}
 	}
 	return srv
 }
