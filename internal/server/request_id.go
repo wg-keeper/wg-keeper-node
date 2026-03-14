@@ -15,10 +15,12 @@ type requestIDCtxKey struct{}
 // requestIDMiddleware generates a request ID (UUID v4), sets it in the gin context,
 // in the request context, and in the response header X-Request-Id so that logs and
 // external monitoring (e.g. Prometheus, OpenTelemetry) can correlate requests.
+// A client-supplied X-Request-Id is accepted only if it is a valid UUID v4;
+// otherwise a fresh ID is generated to prevent log injection via crafted headers.
 func requestIDMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id := c.GetHeader(requestIDHeader)
-		if id == "" {
+		if !IsUUIDv4(id) {
 			id = uuid.New().String()
 		}
 		c.Set(requestIDKey, id)

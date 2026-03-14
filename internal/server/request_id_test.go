@@ -45,6 +45,24 @@ func TestRequestIDMiddleware(t *testing.T) {
 			t.Errorf("%s: got %q, want %q", requestIDHeader, got, wantID)
 		}
 	})
+
+	t.Run("rejects_invalid_id_from_header", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/id", nil)
+		req.Header.Set(requestIDHeader, "not-a-uuid\nX-Injected: evil")
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, req)
+
+		got := rec.Header().Get(requestIDHeader)
+		if got == "" {
+			t.Fatal("expected a generated request ID, got empty")
+		}
+		if got == "not-a-uuid\nX-Injected: evil" {
+			t.Error("invalid request ID was passed through unchanged")
+		}
+		if !IsUUIDv4(got) {
+			t.Errorf("expected generated UUID v4, got %q", got)
+		}
+	})
 }
 
 func TestGetRequestIDFromContext(t *testing.T) {
