@@ -76,8 +76,10 @@ jobs:
           BENCH_RESULT: ${{ steps.compare.outputs.result }}
         with:
           script: |
+            const marker = '<!-- benchmark-compare -->';
             const result = process.env.BENCH_RESULT;
             const body = [
+              marker,
               '## Benchmark comparison (base → PR)',
               '',
               '```',
@@ -86,9 +88,25 @@ jobs:
               '',
               '_Measured with [benchstat](https://pkg.go.dev/golang.org/x/perf/cmd/benchstat), 6 samples per benchmark._',
             ].join('\n');
-            github.rest.issues.createComment({
+
+            const comments = await github.rest.issues.listComments({
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: context.issue.number,
-              body,
             });
+            const existing = comments.data.find(c => c.body.startsWith(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }

@@ -127,6 +127,71 @@ func BenchmarkGetPeerHandler(b *testing.B) {
 	}
 }
 
+func BenchmarkListPeersHandlerParallel(b *testing.B) {
+	peers := make([]wireguard.PeerListItem, 100)
+	for i := range peers {
+		peers[i] = wireguard.PeerListItem{
+			PeerID:          fmt.Sprintf("peer-%d", i),
+			AllowedIPs:      []string{fmt.Sprintf("10.0.%d.2/32", i)},
+			AddressFamilies: []string{"IPv4"},
+			PublicKey:       "pk",
+			CreatedAt:       time.Now().UTC().Format(time.RFC3339),
+		}
+	}
+	svc := mockWGService{
+		listPeersFunc: func(offset, limit int) ([]wireguard.PeerListItem, int, error) {
+			total := len(peers)
+			if offset >= total {
+				return []wireguard.PeerListItem{}, total, nil
+			}
+			result := peers[offset:]
+			if limit > 0 && limit < len(result) {
+				result = result[:limit]
+			}
+			return result, total, nil
+		},
+	}
+	router := newBenchRouter(svc)
+	req := httptest.NewRequest(http.MethodGet, "/peers?limit=20", nil)
+	req.Header.Set(apiKeyHeader, testAPIKey)
+
+	b.ResetTimer()
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			rec := httptest.NewRecorder()
+			router.ServeHTTP(rec, req)
+		}
+	})
+}
+
+func BenchmarkGetPeerHandlerParallel(b *testing.B) {
+	detail := &wireguard.PeerDetail{
+		PeerListItem: wireguard.PeerListItem{
+			PeerID:          "550e8400-e29b-41d4-a716-446655440000",
+			AllowedIPs:      []string{"10.0.0.2/32"},
+			AddressFamilies: []string{"IPv4"},
+			PublicKey:       "pk",
+			CreatedAt:       time.Now().UTC().Format(time.RFC3339),
+		},
+		ReceiveBytes:  1024,
+		TransmitBytes: 2048,
+	}
+	svc := mockWGService{
+		getPeerFunc: func(_ string) (*wireguard.PeerDetail, error) { return detail, nil },
+	}
+	router := newBenchRouter(svc)
+	req := httptest.NewRequest(http.MethodGet, "/peers/550e8400-e29b-41d4-a716-446655440000", nil)
+	req.Header.Set(apiKeyHeader, testAPIKey)
+
+	b.ResetTimer()
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			rec := httptest.NewRecorder()
+			router.ServeHTTP(rec, req)
+		}
+	})
+}
+
 func BenchmarkAPIKeyMiddleware(b *testing.B) {
 	router := gin.New()
 	router.GET("/", apiKeyMiddleware(testAPIKey), func(c *gin.Context) {

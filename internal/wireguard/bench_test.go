@@ -78,6 +78,61 @@ func BenchmarkAllocateOneIPv6(b *testing.B) {
 	}
 }
 
+// ---------- WireGuardService ----------
+
+// BenchmarkEnsurePeerRotate measures the rotate path: the peer already exists
+// and EnsurePeer is called again to refresh its keys/expiry.
+func BenchmarkEnsurePeerRotate(b *testing.B) {
+	svc := newBenchService(b, "10.0.0.0/16")
+	if _, err := svc.EnsurePeer("bench-peer", nil, []string{"IPv4"}); err != nil {
+		b.Fatalf("setup: %v", err)
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if _, err := svc.EnsurePeer("bench-peer", nil, []string{"IPv4"}); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+// BenchmarkEnsurePeerNew measures new peer creation. Uses a /8 subnet so that
+// the IP pool is not exhausted even for large b.N values.
+func BenchmarkEnsurePeerNew(b *testing.B) {
+	svc := newBenchService(b, "10.0.0.0/8")
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if _, err := svc.EnsurePeer(fmt.Sprintf("peer-%d", i), nil, []string{"IPv4"}); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+// BenchmarkDeletePeer measures peer deletion. The peer is re-inserted outside
+// the timer between iterations so that each iteration deletes a fresh record.
+func BenchmarkDeletePeer(b *testing.B) {
+	key, _ := wgtypes.GenerateKey()
+	psk, _ := wgtypes.GenerateKey()
+	_, ipn, _ := net.ParseCIDR("10.0.0.2/32")
+	rec := PeerRecord{
+		PeerID:       "bench-peer",
+		PublicKey:    key,
+		PresharedKey: psk,
+		AllowedIPs:   []net.IPNet{*ipn},
+		CreatedAt:    time.Now().UTC(),
+	}
+	svc := newBenchService(b, "10.0.0.0/16")
+	svc.store.Set(rec)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if err := svc.DeletePeer("bench-peer"); err != nil {
+			b.Fatal(err)
+		}
+		b.StopTimer()
+		svc.store.Set(rec)
+		b.StartTimer()
+	}
+}
+
 // ---------- PeerStore ----------
 
 func BenchmarkPeerStoreSet(b *testing.B) {
@@ -126,6 +181,24 @@ func BenchmarkPeerStoreGetParallel(b *testing.B) {
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
 			store.Get("bench-peer")
+		}
+	})
+}
+
+func BenchmarkPeerStoreSetParallel(b *testing.B) {
+	store := NewPeerStore()
+	key, _ := wgtypes.GenerateKey()
+	_, ipn, _ := net.ParseCIDR("10.0.0.2/32")
+	rec := PeerRecord{
+		PeerID:     "bench-peer",
+		PublicKey:  key,
+		AllowedIPs: []net.IPNet{*ipn},
+		CreatedAt:  time.Now().UTC(),
+	}
+	b.ResetTimer()
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			store.Set(rec)
 		}
 	})
 }
