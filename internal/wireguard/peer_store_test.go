@@ -13,6 +13,22 @@ import (
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 )
 
+func makeStorePeers(t *testing.T, store *PeerStore, n int) {
+	t.Helper()
+	base := time.Now().UTC()
+	for i := 0; i < n; i++ {
+		key, _ := wgtypes.GenerateKey()
+		psk, _ := wgtypes.GenerateKey()
+		store.Set(PeerRecord{
+			PeerID:       fmt.Sprintf("peer-%d", i),
+			PublicKey:    key,
+			PresharedKey: psk,
+			AllowedIPs:   mustParseCIDRs(t, fmt.Sprintf("10.0.%d.%d/32", i/256, i%256+1)),
+			CreatedAt:    base.Add(time.Duration(i) * time.Second),
+		})
+	}
+}
+
 // peerIDTest = "peer-1" is defined in wireguard_test.go (same package)
 
 func TestStoredToRecordAllowedIPs(t *testing.T) {
@@ -346,5 +362,43 @@ func TestLoadFromDataDuplicatePublicKey(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "duplicate public_key") {
 		t.Errorf("expected error about duplicate public_key, got: %v", err)
+	}
+}
+
+// ---------- ListPaginated ----------
+
+func TestListPaginatedOffsetBeyondTotal(t *testing.T) {
+	store := NewPeerStore()
+	makeStorePeers(t, store, 3)
+
+	// offset == total
+	records, total := store.ListPaginated(3, 10)
+	if total != 3 {
+		t.Fatalf("expected total 3, got %d", total)
+	}
+	if len(records) != 0 {
+		t.Fatalf("expected empty slice for offset==total, got %d records", len(records))
+	}
+
+	// offset > total
+	records, total = store.ListPaginated(5, 10)
+	if total != 3 {
+		t.Fatalf("expected total 3, got %d", total)
+	}
+	if len(records) != 0 {
+		t.Fatalf("expected empty slice for offset>total, got %d records", len(records))
+	}
+}
+
+func TestListPaginatedLimitZeroReturnsAll(t *testing.T) {
+	store := NewPeerStore()
+	makeStorePeers(t, store, 5)
+
+	records, total := store.ListPaginated(0, 0)
+	if total != 5 {
+		t.Fatalf("expected total 5, got %d", total)
+	}
+	if len(records) != 5 {
+		t.Fatalf("expected 5 records for limit=0, got %d", len(records))
 	}
 }

@@ -1021,3 +1021,69 @@ func TestCleanupExpiredPeerUpdatesUsedIPs(t *testing.T) {
 		t.Error("expected IP to be removed from usedIPs after expiry cleanup")
 	}
 }
+
+// ---------- deleteExpiredPeerLocked race guard ----------
+
+// TestDeleteExpiredPeerLockedExtended verifies that deleteExpiredPeerLocked returns
+// (false, nil) when the peer's expiry was extended between the ForEach snapshot and
+// the lock acquisition (simulated by storing a future ExpiresAt before calling directly).
+func TestDeleteExpiredPeerLockedExtended(t *testing.T) {
+	_, subnet4, _ := net.ParseCIDR(subnetTestCIDR)
+	key, _ := wgtypes.GenerateKey()
+	psk, _ := wgtypes.GenerateKey()
+	future := time.Now().UTC().Add(time.Hour)
+	svc := &WireGuardService{
+		client:     fakeWGClient{device: &wgtypes.Device{}},
+		deviceName: "wg0",
+		subnet4:    subnet4,
+		serverIP4:  net.ParseIP(ipServerTest),
+		store:      NewPeerStore(),
+	}
+	svc.store.Set(PeerRecord{
+		PeerID:       "ext-peer",
+		PublicKey:    key,
+		PresharedKey: psk,
+		AllowedIPs:   []net.IPNet{ipNet(t, ipPeerTest)},
+		CreatedAt:    time.Now().UTC(),
+		ExpiresAt:    &future, // extended: ExpiresAt is in the future
+	})
+
+	deleted, err := svc.deleteExpiredPeerLocked("ext-peer", time.Now().UTC())
+	if err != nil {
+		t.Fatalf(msgUnexpectedError, err)
+	}
+	if deleted {
+		t.Fatal("expected deleted=false for peer whose expiry was extended")
+	}
+}
+
+// TestDeleteExpiredPeerLockedMadePermanent verifies that deleteExpiredPeerLocked returns
+// (false, nil) when the peer was made permanent (ExpiresAt set to nil) concurrently.
+func TestDeleteExpiredPeerLockedMadePermanent(t *testing.T) {
+	_, subnet4, _ := net.ParseCIDR(subnetTestCIDR)
+	key, _ := wgtypes.GenerateKey()
+	psk, _ := wgtypes.GenerateKey()
+	svc := &WireGuardService{
+		client:     fakeWGClient{device: &wgtypes.Device{}},
+		deviceName: "wg0",
+		subnet4:    subnet4,
+		serverIP4:  net.ParseIP(ipServerTest),
+		store:      NewPeerStore(),
+	}
+	svc.store.Set(PeerRecord{
+		PeerID:       "perm-peer",
+		PublicKey:    key,
+		PresharedKey: psk,
+		AllowedIPs:   []net.IPNet{ipNet(t, ipPeerTest)},
+		CreatedAt:    time.Now().UTC(),
+		ExpiresAt:    nil, // permanent peer
+	})
+
+	deleted, err := svc.deleteExpiredPeerLocked("perm-peer", time.Now().UTC())
+	if err != nil {
+		t.Fatalf(msgUnexpectedError, err)
+	}
+	if deleted {
+		t.Fatal("expected deleted=false for permanent peer")
+	}
+}

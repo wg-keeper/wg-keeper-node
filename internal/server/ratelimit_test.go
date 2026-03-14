@@ -86,6 +86,37 @@ func TestIPRateLimiterStartCleanupEvictsStale(t *testing.T) {
 	t.Error("stale entry was not evicted by background cleanup goroutine")
 }
 
+func TestRateLimitByIPMiddlewareEmptyClientIP(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	limiter := newIPRateLimiter(rateLimitRPS, rateLimitBurst)
+	r := gin.New()
+	r.Use(rateLimitByIPMiddleware(nil, limiter))
+	r.GET("/", func(c *gin.Context) { c.Status(http.StatusOK) })
+
+	// RemoteAddr ":9999" yields an empty host — Gin's ClientIP() returns "".
+	// The middleware must fall back to the "unknown" key instead of the empty string.
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.RemoteAddr = ":9999"
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Errorf("expected 200 for empty ClientIP (within burst), got %d", rec.Code)
+	}
+
+	// Verify the limiter created an entry under "unknown", not "".
+	limiter.mu.RLock()
+	_, hasUnknown := limiter.limiters["unknown"]
+	_, hasEmpty := limiter.limiters[""]
+	limiter.mu.RUnlock()
+	if !hasUnknown {
+		t.Error("expected rate limiter entry under key \"unknown\" for empty ClientIP")
+	}
+	if hasEmpty {
+		t.Error("unexpected rate limiter entry under empty string key")
+	}
+}
+
 func TestIPRateLimiterCleanupLockedRemovesStaleEntries(t *testing.T) {
 	limiter := newIPRateLimiter(rateLimitRPS, rateLimitBurst)
 	now := time.Now()
