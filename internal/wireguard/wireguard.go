@@ -60,6 +60,11 @@ type WireGuardService struct {
 	persistPath string // if set, peer store is persisted to this file
 	// mu serializes operations that modify WireGuard device and peer store together
 	mu sync.Mutex
+	// lastAllocated4/6 are ring-buffer hints for IP allocation: the next search
+	// starts after the last successfully allocated address instead of rescanning
+	// from the subnet start on every call. Accessed only under mu.
+	lastAllocated4 uint32
+	lastAllocated6 net.IP
 }
 
 type wgClient interface {
@@ -682,14 +687,14 @@ func (s *WireGuardService) allocateIPs(families []string) ([]net.IPNet, error) {
 	wantIPv4, wantIPv6 := familiesRequested(families)
 	var out []net.IPNet
 	if wantIPv4 && s.subnet4 != nil {
-		ipNet, err := allocateOneIPv4(s.subnet4, used)
+		ipNet, err := allocateOneIPv4(s.subnet4, used, &s.lastAllocated4)
 		if err != nil {
 			return nil, err
 		}
 		out = append(out, ipNet)
 	}
 	if wantIPv6 && s.subnet6 != nil {
-		ipNet, err := allocateOneIPv6(s.subnet6, used)
+		ipNet, err := allocateOneIPv6(s.subnet6, used, &s.lastAllocated6)
 		if err != nil {
 			return nil, err
 		}
@@ -735,22 +740,53 @@ func familiesRequested(families []string) (wantIPv4, wantIPv6 bool) {
 	return wantIPv4, wantIPv6
 }
 
-func allocateOneIPv4(subnet *net.IPNet, used map[string]struct{}) (net.IPNet, error) {
+// allocateOneIPv4 finds the next free IPv4 address in subnet.
+// hint, when non-nil, is a ring-buffer cursor: the search starts from *hint+1
+// and wraps around to the subnet start if needed, so sequential allocations are
+// O(1) instead of O(used) when starting from the subnet beginning every time.
+// On success *hint is updated to the allocated address. nil hint disables this.
+func allocateOneIPv4(subnet *net.IPNet, used map[string]struct{}, hint *uint32) (net.IPNet, error) {
 	start, end, err := ipv4Range(subnet)
 	if err != nil {
 		return net.IPNet{}, err
 	}
-	for ip := start; !ipAfter(ip, end); ip = nextIPv4(ip) {
-		if _, exists := used[ip.String()]; exists {
-			continue
+	startInt := ipToUint32(start)
+	endInt := ipToUint32(end)
+
+	searchFrom := startInt
+	if hint != nil && *hint >= startInt && *hint < endInt {
+		searchFrom = *hint + 1
+	}
+
+	// First pass: searchFrom → end. Wrap-around pass: start → searchFrom−1.
+	for candidate := searchFrom; candidate <= endInt; candidate++ {
+		ip := uint32ToIP(candidate)
+		if _, exists := used[ip.String()]; !exists {
+			used[ip.String()] = struct{}{}
+			if hint != nil {
+				*hint = candidate
+			}
+			return net.IPNet{IP: ip, Mask: net.CIDRMask(32, 32)}, nil
 		}
-		used[ip.String()] = struct{}{}
-		return net.IPNet{IP: ip, Mask: net.CIDRMask(32, 32)}, nil
+	}
+	if searchFrom > startInt {
+		for candidate := startInt; candidate < searchFrom; candidate++ {
+			ip := uint32ToIP(candidate)
+			if _, exists := used[ip.String()]; !exists {
+				used[ip.String()] = struct{}{}
+				if hint != nil {
+					*hint = candidate
+				}
+				return net.IPNet{IP: ip, Mask: net.CIDRMask(32, 32)}, nil
+			}
+		}
 	}
 	return net.IPNet{}, ErrNoAvailableIP
 }
 
-func allocateOneIPv6(subnet *net.IPNet, used map[string]struct{}) (net.IPNet, error) {
+// allocateOneIPv6 finds the next free IPv6 address in subnet.
+// hint works the same as in allocateOneIPv6: ring-buffer cursor updated on success.
+func allocateOneIPv6(subnet *net.IPNet, used map[string]struct{}, hint *net.IP) (net.IPNet, error) {
 	start, end, err := ipv6Range(subnet)
 	if err != nil {
 		return net.IPNet{}, err
@@ -760,17 +796,55 @@ func allocateOneIPv6(subnet *net.IPNet, used map[string]struct{}) (net.IPNet, er
 	if ones < 112 {
 		maxIter = maxIPv6PeersReported
 	}
+
+	searchFrom := make(net.IP, 16)
+	copy(searchFrom, start)
+	if hint != nil && *hint != nil {
+		last := (*hint).To16()
+		// Use hint only if it's inside the current subnet range.
+		if !ipAfterIPv6(start, last) && !ipAfterIPv6(last, end) {
+			next := nextIPv6(last)
+			if !ipAfterIPv6(next, end) {
+				copy(searchFrom, next)
+			}
+			// If next overflows past end, searchFrom stays at start (full wrap).
+		}
+	}
+
 	n := 0
-	for ip := start; !ipAfterIPv6(ip, end); ip = nextIPv6(ip) {
+	// First pass: searchFrom → end.
+	for ip := searchFrom; !ipAfterIPv6(ip, end); ip = nextIPv6(ip) {
 		if maxIter > 0 && n >= maxIter {
-			break
+			return net.IPNet{}, ErrNoAvailableIP
 		}
 		n++
-		if _, exists := used[ip.String()]; exists {
-			continue
+		if _, exists := used[ip.String()]; !exists {
+			used[ip.String()] = struct{}{}
+			if hint != nil {
+				allocated := make(net.IP, 16)
+				copy(allocated, ip)
+				*hint = allocated
+			}
+			return net.IPNet{IP: ip, Mask: net.CIDRMask(128, 128)}, nil
 		}
-		used[ip.String()] = struct{}{}
-		return net.IPNet{IP: ip, Mask: net.CIDRMask(128, 128)}, nil
+	}
+	// Wrap-around pass: start → searchFrom−1.
+	if ipAfterIPv6(searchFrom, start) {
+		for ip := start; ipAfterIPv6(searchFrom, ip); ip = nextIPv6(ip) {
+			if maxIter > 0 && n >= maxIter {
+				return net.IPNet{}, ErrNoAvailableIP
+			}
+			n++
+			if _, exists := used[ip.String()]; !exists {
+				used[ip.String()] = struct{}{}
+				if hint != nil {
+					allocated := make(net.IP, 16)
+					copy(allocated, ip)
+					*hint = allocated
+				}
+				return net.IPNet{IP: ip, Mask: net.CIDRMask(128, 128)}, nil
+			}
+		}
 	}
 	return net.IPNet{}, ErrNoAvailableIP
 }

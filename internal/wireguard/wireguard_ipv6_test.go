@@ -115,7 +115,7 @@ func TestResolveServerIP6EmptyUsesFirst(t *testing.T) {
 func TestAllocateOneIPv6(t *testing.T) {
 	_, subnet, _ := net.ParseCIDR(subnet6TestCIDR)
 	used := map[string]struct{}{}
-	ipNet, err := allocateOneIPv6(subnet, used)
+	ipNet, err := allocateOneIPv6(subnet, used, nil)
 	if err != nil {
 		t.Fatalf("allocateOneIPv6: %v", err)
 	}
@@ -154,7 +154,7 @@ func TestAllocateOneIPv6AllUsed(t *testing.T) {
 		"fd00::1":    {},
 		ipv6NextAddr: {},
 	}
-	_, err := allocateOneIPv6(subnet, used)
+	_, err := allocateOneIPv6(subnet, used, nil)
 	if err == nil {
 		t.Fatal("expected ErrNoAvailableIP when all IPs are used")
 	}

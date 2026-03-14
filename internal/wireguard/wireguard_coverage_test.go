@@ -120,7 +120,7 @@ func TestAllocateIPsIPv4RangeError(t *testing.T) {
 func TestAllocateOneIPv6LargeSubnet(t *testing.T) {
 	_, subnet, _ := net.ParseCIDR(subnet6TestCIDR64) // /64, ones=64 < 112
 	used := map[string]struct{}{}
-	ipNet, err := allocateOneIPv6(subnet, used)
+	ipNet, err := allocateOneIPv6(subnet, used, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
