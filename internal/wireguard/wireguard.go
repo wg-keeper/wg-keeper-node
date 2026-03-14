@@ -453,6 +453,20 @@ func (s *WireGuardService) DeletePeer(peerID string) error {
 	return nil
 }
 
+// removePeerUnsafe removes a peer from the WireGuard device, store, and usedIPs cache.
+// Must be called with s.mu held.
+func (s *WireGuardService) removePeerUnsafe(record PeerRecord) error {
+	remove := wgtypes.PeerConfig{PublicKey: record.PublicKey, Remove: true}
+	if err := s.configureDevice(wgtypes.Config{Peers: []wgtypes.PeerConfig{remove}}); err != nil {
+		return err
+	}
+	s.store.Delete(record.PeerID)
+	for _, aip := range record.AllowedIPs {
+		delete(s.usedIPs, aip.IP.String())
+	}
+	return nil
+}
+
 // deletePeerLocked performs all in-memory and device mutations under s.mu.
 // It does not call savePersist; the caller must persist after releasing the lock.
 func (s *WireGuardService) deletePeerLocked(peerID string) error {
@@ -463,21 +477,7 @@ func (s *WireGuardService) deletePeerLocked(peerID string) error {
 	if !ok {
 		return ErrPeerNotFound
 	}
-
-	remove := wgtypes.PeerConfig{
-		PublicKey: record.PublicKey,
-		Remove:    true,
-	}
-
-	if err := s.configureDevice(wgtypes.Config{Peers: []wgtypes.PeerConfig{remove}}); err != nil {
-		return err
-	}
-
-	s.store.Delete(peerID)
-	for _, aip := range record.AllowedIPs {
-		delete(s.usedIPs, aip.IP.String())
-	}
-	return nil
+	return s.removePeerUnsafe(record)
 }
 
 func (s *WireGuardService) Stats() (Stats, error) {
@@ -971,7 +971,7 @@ func ipv6Range(subnet *net.IPNet) (net.IP, net.IP, error) {
 	}
 	_, bits := subnet.Mask.Size()
 	if bits != 128 {
-		return nil, nil, errors.New("IPv6 mask must be 128 bits")
+		return nil, nil, errors.New("invalid IPv6 subnet mask")
 	}
 	network := make(net.IP, 16)
 	copy(network, ip)

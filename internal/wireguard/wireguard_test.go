@@ -601,6 +601,55 @@ func TestPeerRecordToListItemWithExpiresAt(t *testing.T) {
 	}
 }
 
+func TestRemovePeerUnsafeRemovesFromStoreAndUsedIPs(t *testing.T) {
+	svc := newTestServiceWithSubnet(t, nil)
+	key, _ := wgtypes.GenerateKey()
+	peerIP := ipNet(t, ipPeerTest)
+	record := PeerRecord{
+		PeerID:       peerIDTest,
+		PublicKey:    key,
+		PresharedKey: wgtypes.Key{},
+		AllowedIPs:   []net.IPNet{peerIP},
+		CreatedAt:    time.Now().UTC(),
+	}
+	svc.store.Set(record)
+	svc.usedIPs = map[string]struct{}{ipPeerTest: {}}
+
+	if err := svc.removePeerUnsafe(record); err != nil {
+		t.Fatalf("removePeerUnsafe: %v", err)
+	}
+	if _, ok := svc.store.Get(peerIDTest); ok {
+		t.Error("peer should be removed from store")
+	}
+	if _, ok := svc.usedIPs[ipPeerTest]; ok {
+		t.Error("IP should be removed from usedIPs")
+	}
+}
+
+func TestRemovePeerUnsafeDeviceError(t *testing.T) {
+	svc := newTestServiceWithSubnet(t, errors.New("device busy"))
+	key, _ := wgtypes.GenerateKey()
+	record := PeerRecord{
+		PeerID:       peerIDTest,
+		PublicKey:    key,
+		PresharedKey: wgtypes.Key{},
+		AllowedIPs:   []net.IPNet{ipNet(t, ipPeerTest)},
+		CreatedAt:    time.Now().UTC(),
+	}
+	svc.store.Set(record)
+	svc.usedIPs = map[string]struct{}{ipPeerTest: {}}
+
+	if err := svc.removePeerUnsafe(record); err == nil {
+		t.Fatal("expected error from device, got nil")
+	}
+	if _, ok := svc.store.Get(peerIDTest); !ok {
+		t.Error("peer should remain in store when device removal fails")
+	}
+	if _, ok := svc.usedIPs[ipPeerTest]; !ok {
+		t.Error("IP should remain in usedIPs when device removal fails")
+	}
+}
+
 func TestEnsurePeerDuplicateRotates(t *testing.T) {
 	_, subnet4, _ := net.ParseCIDR(subnetSmallTestCIDR)
 	key, _ := wgtypes.GenerateKey()
