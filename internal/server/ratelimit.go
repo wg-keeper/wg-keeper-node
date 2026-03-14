@@ -35,11 +35,11 @@ type ipRateLimiter struct {
 	burst    int
 }
 
-func newIPRateLimiter(rps float64, burst int) *ipRateLimiter {
+func newIPRateLimiter() *ipRateLimiter {
 	return &ipRateLimiter{
 		limiters: make(map[string]*ipLimiter),
-		limit:    rate.Limit(rps),
-		burst:    burst,
+		limit:    rate.Limit(rateLimitRPS),
+		burst:    rateLimitBurst,
 	}
 }
 
@@ -141,7 +141,7 @@ func rateLimitByIPMiddleware(allowedNets []*net.IPNet, limiter *ipRateLimiter) g
 }
 
 func newRateLimitMiddleware(ctx context.Context, allowedNets []*net.IPNet) gin.HandlerFunc {
-	limiter := newIPRateLimiter(rateLimitRPS, rateLimitBurst)
+	limiter := newIPRateLimiter()
 	limiter.startCleanup(ctx, rateLimiterCleanupInterval)
 	return rateLimitByIPMiddleware(allowedNets, limiter)
 }

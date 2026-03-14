@@ -58,7 +58,7 @@ func TestRateLimitMiddlewareWithoutAllowedNetsReturns429(t *testing.T) {
 }
 
 func TestIPRateLimiterStartCleanupEvictsStale(t *testing.T) {
-	limiter := newIPRateLimiter(rateLimitRPS, rateLimitBurst)
+	limiter := newIPRateLimiter()
 
 	// Add a stale entry directly.
 	limiter.mu.Lock()
@@ -89,7 +89,7 @@ func TestIPRateLimiterStartCleanupEvictsStale(t *testing.T) {
 func TestRateLimitByIPMiddlewareEmptyClientIP(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	limiter := newIPRateLimiter(rateLimitRPS, rateLimitBurst)
+	limiter := newIPRateLimiter()
 	r := gin.New()
 	r.Use(rateLimitByIPMiddleware(nil, limiter))
 	r.GET("/", func(c *gin.Context) { c.Status(http.StatusOK) })
@@ -118,7 +118,7 @@ func TestRateLimitByIPMiddlewareEmptyClientIP(t *testing.T) {
 }
 
 func TestIPRateLimiterCleanupLockedRemovesStaleEntries(t *testing.T) {
-	limiter := newIPRateLimiter(rateLimitRPS, rateLimitBurst)
+	limiter := newIPRateLimiter()
 	now := time.Now()
 
 	// Create an entry by calling get once.
