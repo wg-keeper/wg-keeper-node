@@ -531,21 +531,6 @@ func TestAllocateIPsDualStack(t *testing.T) {
 	}
 }
 
-func TestAllocateIPsDeviceError(t *testing.T) {
-	_, subnet4, _ := net.ParseCIDR(subnetTestCIDR)
-	svc := &WireGuardService{
-		client:     fakeWGClient{err: errors.New(testErrDeviceError)},
-		deviceName: "wg0",
-		subnet4:    subnet4,
-		serverIP4:  net.ParseIP(ipServerTest),
-		store:      NewPeerStore(),
-	}
-	_, err := svc.allocateIPs([]string{FamilyIPv4})
-	if err == nil {
-		t.Fatal("expected error when device is unavailable")
-	}
-}
-
 // ---------- rotatePeer via EnsurePeer ----------
 
 func TestEnsurePeerRotateDeviceError(t *testing.T) {

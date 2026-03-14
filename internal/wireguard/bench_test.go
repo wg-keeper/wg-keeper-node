@@ -18,12 +18,14 @@ func newBenchService(b *testing.B, cidr string) *WireGuardService {
 		b.Fatalf("parse cidr: %v", err)
 	}
 	start, _, _ := ipv4Range(subnet)
-	return &WireGuardService{
+	svc := &WireGuardService{
 		client:    fakeWGClient{device: &wgtypes.Device{}},
 		subnet4:   subnet,
 		serverIP4: start,
 		store:     NewPeerStore(),
 	}
+	svc.initUsedIPs()
+	return svc
 }
 
 // ---------- IP allocation ----------

@@ -100,17 +100,18 @@ func newTestServiceWithSubnet29(t *testing.T, device *wgtypes.Device) *WireGuard
 }
 
 func TestAllocateIPSkipsUsed(t *testing.T) {
-	device := &wgtypes.Device{
-		Peers: []wgtypes.Peer{
-			{AllowedIPs: []net.IPNet{ipNet(t, "10.0.0.3")}},
-		},
-	}
-	svc := newTestServiceWithSubnet29(t, device)
+	svc := newTestServiceWithSubnet29(t, &wgtypes.Device{})
 	svc.store.Set(PeerRecord{
 		PeerID:       peerIDTest,
 		PublicKey:    wgtypes.Key{},
 		PresharedKey: wgtypes.Key{},
 		AllowedIPs:   []net.IPNet{ipNet(t, ipPeerTest)},
+	})
+	svc.store.Set(PeerRecord{
+		PeerID:       "peer-2",
+		PublicKey:    wgtypes.Key{1},
+		PresharedKey: wgtypes.Key{},
+		AllowedIPs:   []net.IPNet{ipNet(t, "10.0.0.3")},
 	})
 
 	ips, err := svc.allocateIPs([]string{FamilyIPv4})

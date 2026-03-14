@@ -65,6 +65,11 @@ type WireGuardService struct {
 	// from the subnet start on every call. Accessed only under mu.
 	lastAllocated4 uint32
 	lastAllocated6 net.IP
+	// usedIPs is an incremental cache of all IP addresses currently assigned to
+	// peers (AllowedIPs) plus server IPs. It mirrors the store exactly and is
+	// updated on every peer add/delete so that allocateIPs runs in O(1) instead
+	// of O(N) on every call. Accessed only under mu.
+	usedIPs map[string]struct{}
 }
 
 type wgClient interface {
@@ -143,6 +148,7 @@ func NewWireGuardService(cfg config.Config) (*WireGuardService, error) {
 	if err := initPersistStore(svc); err != nil {
 		return nil, err
 	}
+	svc.initUsedIPs()
 	return svc, nil
 }
 
@@ -399,6 +405,9 @@ func (s *WireGuardService) ensurePeerLocked(peerID string, expiresAt *time.Time,
 	}
 
 	if err := s.configureDevice(wgtypes.Config{Peers: []wgtypes.PeerConfig{peerConfig}}); err != nil {
+		for _, aip := range allowedIPs {
+			delete(s.usedIPs, aip.IP.String())
+		}
 		return PeerInfo{}, err
 	}
 
@@ -465,6 +474,9 @@ func (s *WireGuardService) deletePeerLocked(peerID string) error {
 	}
 
 	s.store.Delete(peerID)
+	for _, aip := range record.AllowedIPs {
+		delete(s.usedIPs, aip.IP.String())
+	}
 	return nil
 }
 
@@ -685,54 +697,46 @@ func (s *WireGuardService) rotatePeer(peerID string, record PeerRecord, expiresA
 	}, nil
 }
 
+// initUsedIPs builds the usedIPs cache from the current store and server IPs.
+// Must be called after the store is loaded. Not concurrency-safe; call before
+// the service starts handling requests.
+func (s *WireGuardService) initUsedIPs() {
+	s.usedIPs = make(map[string]struct{})
+	if s.serverIP4 != nil {
+		s.usedIPs[s.serverIP4.String()] = struct{}{}
+	}
+	if s.serverIP6 != nil {
+		s.usedIPs[s.serverIP6.String()] = struct{}{}
+	}
+	s.store.ForEach(func(rec PeerRecord) {
+		for _, aip := range rec.AllowedIPs {
+			s.usedIPs[aip.IP.String()] = struct{}{}
+		}
+	})
+}
+
 // allocateIPs allocates one address per requested family. families must be validated (e.g. via ValidateAddressFamilies).
 func (s *WireGuardService) allocateIPs(families []string) ([]net.IPNet, error) {
-	used, err := s.collectUsedIPs()
-	if err != nil {
-		return nil, err
+	if s.usedIPs == nil {
+		s.initUsedIPs()
 	}
 	wantIPv4, wantIPv6 := familiesRequested(families)
 	var out []net.IPNet
 	if wantIPv4 && s.subnet4 != nil {
-		ipNet, err := allocateOneIPv4(s.subnet4, used, &s.lastAllocated4)
+		ipNet, err := allocateOneIPv4(s.subnet4, s.usedIPs, &s.lastAllocated4)
 		if err != nil {
 			return nil, err
 		}
 		out = append(out, ipNet)
 	}
 	if wantIPv6 && s.subnet6 != nil {
-		ipNet, err := allocateOneIPv6(s.subnet6, used, &s.lastAllocated6)
+		ipNet, err := allocateOneIPv6(s.subnet6, s.usedIPs, &s.lastAllocated6)
 		if err != nil {
 			return nil, err
 		}
 		out = append(out, ipNet)
 	}
 	return out, nil
-}
-
-func (s *WireGuardService) collectUsedIPs() (map[string]struct{}, error) {
-	used := make(map[string]struct{})
-	if s.serverIP4 != nil {
-		used[s.serverIP4.String()] = struct{}{}
-	}
-	if s.serverIP6 != nil {
-		used[s.serverIP6.String()] = struct{}{}
-	}
-	s.store.ForEach(func(record PeerRecord) {
-		for _, aip := range record.AllowedIPs {
-			used[aip.IP.String()] = struct{}{}
-		}
-	})
-	device, err := s.client.Device(s.deviceName)
-	if err != nil {
-		return nil, err
-	}
-	for _, peer := range device.Peers {
-		for _, allowed := range peer.AllowedIPs {
-			used[allowed.IP.String()] = struct{}{}
-		}
-	}
-	return used, nil
 }
 
 func familiesRequested(families []string) (wantIPv4, wantIPv6 bool) {

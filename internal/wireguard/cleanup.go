@@ -83,5 +83,8 @@ func (s *WireGuardService) deleteExpiredPeerLocked(peerID string, now time.Time)
 		return false, err
 	}
 	s.store.Delete(peerID)
+	for _, aip := range record.AllowedIPs {
+		delete(s.usedIPs, aip.IP.String())
+	}
 	return true, nil
 }
