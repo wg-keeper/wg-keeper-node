@@ -106,8 +106,19 @@ func (i *ipRateLimiter) cleanupLocked(now time.Time) {
 }
 
 // rateLimitByIPMiddleware returns a middleware that limits requests per client IP.
-// When allowedNets is non-empty (IP whitelist is configured), it returns a no-op:
-// rate limiting is not applied so that trusted orchestrator IPs are not limited.
+//
+// # Rate limiting vs. IP whitelist
+//
+// When server.allowed_ips is configured (allowedNets is non-empty), rate limiting
+// is intentionally disabled. The rationale: if you have locked down the API to a
+// known set of trusted IPs (e.g. a single orchestrator host), per-IP throttling
+// adds no meaningful protection — an attacker who cannot reach the endpoint at all
+// is already blocked by the whitelist. Keeping the two mechanisms mutually exclusive
+// also avoids accidentally throttling a legitimate orchestrator during a bulk
+// peer-provisioning burst.
+//
+// If you deploy the node without a whitelist (public or semi-public endpoint), rate
+// limiting kicks in automatically at rateLimitRPS req/s with a burst of rateLimitBurst.
 func rateLimitByIPMiddleware(allowedNets []*net.IPNet, limiter *ipRateLimiter) gin.HandlerFunc {
 	applyLimit := len(allowedNets) == 0
 	return func(c *gin.Context) {
