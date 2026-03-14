@@ -3,6 +3,7 @@ package wireguard
 import (
 	"context"
 	"log"
+	"runtime/debug"
 	"time"
 )
 
@@ -26,7 +27,7 @@ func (s *WireGuardService) RunExpiredPeersCleanup(ctx context.Context, interval 
 func (s *WireGuardService) runCleanupSafe() {
 	defer func() {
 		if r := recover(); r != nil {
-			log.Printf("cleanup panic (recovered): %v", r)
+			log.Printf("cleanup panic (recovered): %v\n%s", r, debug.Stack())
 		}
 	}()
 	s.cleanupExpiredPeers()

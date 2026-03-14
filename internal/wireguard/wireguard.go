@@ -196,6 +196,9 @@ func initPersistStore(svc *WireGuardService) error {
 	if err := svc.reconcileStoreWithDevice(); err != nil {
 		return fmt.Errorf("reconcile peer store with device: %w", err)
 	}
+	// Remove expired peers synchronously so they are not visible on the device
+	// or in the store before the HTTP server starts accepting requests.
+	svc.cleanupExpiredPeers()
 	if svc.reconcileStoreWithSubnets() {
 		if err := svc.store.SaveToFile(svc.persistPath); err != nil {
 			return fmt.Errorf("save peer store after reconcile: %w", err)
@@ -217,7 +220,7 @@ func (s *WireGuardService) reconcileStoreWithDevice() error {
 		onDevice[device.Peers[i].PublicKey] = true
 	}
 	var toAdd []wgtypes.PeerConfig
-	for _, rec := range s.store.List() {
+	s.store.ForEach(func(rec PeerRecord) {
 		if !onDevice[rec.PublicKey] {
 			psk := rec.PresharedKey
 			toAdd = append(toAdd, wgtypes.PeerConfig{
@@ -228,7 +231,7 @@ func (s *WireGuardService) reconcileStoreWithDevice() error {
 				PersistentKeepaliveInterval: keepaliveInterval(),
 			})
 		}
-	}
+	})
 	if len(toAdd) == 0 {
 		return nil
 	}
@@ -239,21 +242,25 @@ func (s *WireGuardService) reconcileStoreWithDevice() error {
 // are not entirely within the current config subnets (subnet4/subnet6).
 // Returns true if any record was removed.
 func (s *WireGuardService) reconcileStoreWithSubnets() bool {
-	var changed bool
-	for _, rec := range s.store.List() {
+	var outOfSubnet []PeerRecord
+	s.store.ForEach(func(rec PeerRecord) {
 		if !s.recordAllowedIPsInSubnets(rec) {
-			if err := s.configureDevice(wgtypes.Config{
-				Peers: []wgtypes.PeerConfig{{PublicKey: rec.PublicKey, Remove: true}},
-			}); err != nil {
-				// Do not remove from store when device removal fails: removing the store
-				// record while the peer remains on the device would create an orphan that
-				// is invisible to the store and won't be cleaned up on restart.
-				log.Printf("reconcile: failed to remove peer %s from device, skipping store removal: %v", rec.PeerID, err)
-				continue
-			}
-			s.store.Delete(rec.PeerID)
-			changed = true
+			outOfSubnet = append(outOfSubnet, rec)
 		}
+	})
+	var changed bool
+	for _, rec := range outOfSubnet {
+		if err := s.configureDevice(wgtypes.Config{
+			Peers: []wgtypes.PeerConfig{{PublicKey: rec.PublicKey, Remove: true}},
+		}); err != nil {
+			// Do not remove from store when device removal fails: removing the store
+			// record while the peer remains on the device would create an orphan that
+			// is invisible to the store and won't be cleaned up on restart.
+			log.Printf("reconcile: failed to remove peer %s from device, skipping store removal: %v", rec.PeerID, err)
+			continue
+		}
+		s.store.Delete(rec.PeerID)
+		changed = true
 	}
 	return changed
 }
