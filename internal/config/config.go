@@ -17,7 +17,7 @@ var validNetworkInterface = regexp.MustCompile(`^[a-zA-Z0-9\-_.]+$`)
 
 const (
 	errMsgRequired  = "%s is required"
-	minAPIKeyLength = 16
+	minAPIKeyLength = 32
 )
 
 type Config struct {
