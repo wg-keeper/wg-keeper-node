@@ -100,17 +100,18 @@ func newTestServiceWithSubnet29(t *testing.T, device *wgtypes.Device) *WireGuard
 }
 
 func TestAllocateIPSkipsUsed(t *testing.T) {
-	device := &wgtypes.Device{
-		Peers: []wgtypes.Peer{
-			{AllowedIPs: []net.IPNet{ipNet(t, "10.0.0.3")}},
-		},
-	}
-	svc := newTestServiceWithSubnet29(t, device)
+	svc := newTestServiceWithSubnet29(t, &wgtypes.Device{})
 	svc.store.Set(PeerRecord{
 		PeerID:       peerIDTest,
 		PublicKey:    wgtypes.Key{},
 		PresharedKey: wgtypes.Key{},
 		AllowedIPs:   []net.IPNet{ipNet(t, ipPeerTest)},
+	})
+	svc.store.Set(PeerRecord{
+		PeerID:       "peer-2",
+		PublicKey:    wgtypes.Key{1},
+		PresharedKey: wgtypes.Key{},
+		AllowedIPs:   []net.IPNet{ipNet(t, "10.0.0.3")},
 	})
 
 	ips, err := svc.allocateIPs([]string{FamilyIPv4})
@@ -231,7 +232,7 @@ func TestRunExpiredPeersCleanupRemovesExpiredPeer(t *testing.T) {
 	go svc.RunExpiredPeersCleanup(ctx, 10*time.Millisecond)
 	time.Sleep(50 * time.Millisecond)
 
-	list, err := svc.ListPeers()
+	list, _, err := svc.ListPeers(0, 0)
 	if err != nil {
 		t.Fatalf(msgListPeersFmt, err)
 	}
@@ -255,7 +256,7 @@ func TestRunExpiredPeersCleanupKeepsPermanentPeer(t *testing.T) {
 	svc.runCleanupSafe()
 	time.Sleep(10 * time.Millisecond)
 
-	list, err := svc.ListPeers()
+	list, _, err := svc.ListPeers(0, 0)
 	if err != nil {
 		t.Fatalf(msgListPeersFmt, err)
 	}
@@ -278,7 +279,7 @@ func TestCleanupExpiredPeersNotYetExpired(t *testing.T) {
 	})
 	svc.runCleanupSafe()
 
-	list, err := svc.ListPeers()
+	list, _, err := svc.ListPeers(0, 0)
 	if err != nil {
 		t.Fatalf(msgListPeersFmt, err)
 	}
@@ -300,7 +301,7 @@ func TestCleanupExpiredPeersDeletePeerError(t *testing.T) {
 		ExpiresAt:    &expiredAt,
 	})
 	svc.runCleanupSafe()
-	list, err := svc.ListPeers()
+	list, _, err := svc.ListPeers(0, 0)
 	if err != nil {
 		t.Fatalf(msgListPeersFmt, err)
 	}

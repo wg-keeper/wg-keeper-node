@@ -56,7 +56,7 @@ type mockWGService struct {
 	ensurePeerFunc func(peerID string, expiresAt *time.Time, addressFamilies []string) (wireguard.PeerInfo, error)
 	deletePeerFunc func(string) error
 	serverInfoFunc func() (string, int, error)
-	listPeersFunc  func() ([]wireguard.PeerListItem, error)
+	listPeersFunc  func(offset, limit int) ([]wireguard.PeerListItem, int, error)
 	getPeerFunc    func(string) (*wireguard.PeerDetail, error)
 }
 
@@ -76,8 +76,8 @@ func (m mockWGService) ServerInfo() (string, int, error) {
 	return m.serverInfoFunc()
 }
 
-func (m mockWGService) ListPeers() ([]wireguard.PeerListItem, error) {
-	return m.listPeersFunc()
+func (m mockWGService) ListPeers(offset, limit int) ([]wireguard.PeerListItem, int, error) {
+	return m.listPeersFunc(offset, limit)
 }
 
 func (m mockWGService) GetPeer(peerID string) (*wireguard.PeerDetail, error) {
@@ -387,10 +387,10 @@ func TestStatsHandlerErrorWithDebugDetail(t *testing.T) {
 func TestListPeersSuccess(t *testing.T) {
 	router := newTestRouter()
 	router.GET(pathPeers, apiKeyMiddleware(testAPIKey), listPeersHandler(mockWGService{
-		listPeersFunc: func() ([]wireguard.PeerListItem, error) {
+		listPeersFunc: func(_, _ int) ([]wireguard.PeerListItem, int, error) {
 			return []wireguard.PeerListItem{
 				{PeerID: "p1", AllowedIPs: []string{testAllowedIP}, AddressFamilies: []string{"IPv4"}, PublicKey: "pk1", Active: true, CreatedAt: "2025-01-01T00:00:00Z"},
-			}, nil
+			}, 1, nil
 		},
 	}, false))
 
@@ -411,8 +411,8 @@ func TestListPeersSuccess(t *testing.T) {
 func TestListPeersNilListReturnsEmpty(t *testing.T) {
 	router := newTestRouter()
 	router.GET(pathPeers, apiKeyMiddleware(testAPIKey), listPeersHandler(mockWGService{
-		listPeersFunc: func() ([]wireguard.PeerListItem, error) {
-			return nil, nil
+		listPeersFunc: func(_, _ int) ([]wireguard.PeerListItem, int, error) {
+			return nil, 0, nil
 		},
 	}, false))
 
@@ -433,8 +433,8 @@ func TestListPeersNilListReturnsEmpty(t *testing.T) {
 func TestListPeersError(t *testing.T) {
 	router := newTestRouter()
 	router.GET(pathPeers, apiKeyMiddleware(testAPIKey), listPeersHandler(mockWGService{
-		listPeersFunc: func() ([]wireguard.PeerListItem, error) {
-			return nil, errors.New(errMsgDeviceUnavailable)
+		listPeersFunc: func(_, _ int) ([]wireguard.PeerListItem, int, error) {
+			return nil, 0, errors.New(errMsgDeviceUnavailable)
 		},
 	}, false))
 
@@ -446,7 +446,7 @@ func TestListPeersError(t *testing.T) {
 func TestListPeersUnauthorized(t *testing.T) {
 	router := newTestRouter()
 	router.GET(pathPeers, apiKeyMiddleware(testAPIKey), listPeersHandler(mockWGService{
-		listPeersFunc: func() ([]wireguard.PeerListItem, error) { return nil, nil },
+		listPeersFunc: func(_, _ int) ([]wireguard.PeerListItem, int, error) { return nil, 0, nil },
 	}, false))
 
 	rec := performRequest(t, router, http.MethodGet, pathPeers, nil, "")
@@ -520,7 +520,17 @@ func listPeersWithPagination(t *testing.T, peers []wireguard.PeerListItem, query
 	t.Helper()
 	router := newTestRouter()
 	router.GET(pathPeers, apiKeyMiddleware(testAPIKey), listPeersHandler(mockWGService{
-		listPeersFunc: func() ([]wireguard.PeerListItem, error) { return peers, nil },
+		listPeersFunc: func(offset, limit int) ([]wireguard.PeerListItem, int, error) {
+			total := len(peers)
+			if offset >= total {
+				return []wireguard.PeerListItem{}, total, nil
+			}
+			result := peers[offset:]
+			if limit > 0 && limit < len(result) {
+				result = result[:limit]
+			}
+			return result, total, nil
+		},
 	}, false))
 
 	rec := performRequest(t, router, http.MethodGet, pathPeers+query, nil, testAPIKey)
@@ -625,7 +635,7 @@ func TestListPeersInvalidParamsRejected(t *testing.T) {
 	peers := makePeerList(5)
 	router := newTestRouter()
 	router.GET(pathPeers, apiKeyMiddleware(testAPIKey), listPeersHandler(mockWGService{
-		listPeersFunc: func() ([]wireguard.PeerListItem, error) { return peers, nil },
+		listPeersFunc: func(_, _ int) ([]wireguard.PeerListItem, int, error) { return peers, len(peers), nil },
 	}, false))
 
 	cases := []string{
@@ -640,57 +650,6 @@ func TestListPeersInvalidParamsRejected(t *testing.T) {
 		if rec.Code != http.StatusBadRequest {
 			t.Errorf("query %q: expected 400, got %d", q, rec.Code)
 		}
-	}
-}
-
-func TestApplyPaginationEmptyList(t *testing.T) {
-	offset, limit, paginated := applyPagination([]wireguard.PeerListItem{}, "0", "10")
-	if offset != 0 || limit != 0 || len(paginated) != 0 {
-		t.Errorf("expected offset=0, limit=0, empty slice; got offset=%d limit=%d len=%d", offset, limit, len(paginated))
-	}
-}
-
-func TestApplyPaginationNegativeOffset(t *testing.T) {
-	peers := makePeerList(5)
-	offset, _, paginated := applyPagination(peers, "-1", "")
-	if offset != 0 {
-		t.Errorf("expected offset=0 for negative offset string, got %d", offset)
-	}
-	if len(paginated) != 5 {
-		t.Errorf("expected all 5 peers, got %d", len(paginated))
-	}
-}
-
-func TestApplyPaginationZeroOffsetString(t *testing.T) {
-	peers := makePeerList(5)
-	offset, _, paginated := applyPagination(peers, "0", "")
-	if offset != 0 {
-		t.Errorf("expected offset=0, got %d", offset)
-	}
-	if len(paginated) != 5 {
-		t.Errorf("expected all 5 peers, got %d", len(paginated))
-	}
-}
-
-func TestApplyPaginationOffsetEqualToLength(t *testing.T) {
-	peers := makePeerList(3)
-	offset, _, paginated := applyPagination(peers, "3", "")
-	if offset != 3 {
-		t.Errorf("expected offset=3, got %d", offset)
-	}
-	if len(paginated) != 0 {
-		t.Errorf("expected empty result when offset==len, got %d", len(paginated))
-	}
-}
-
-func TestApplyPaginationNegativeLimit(t *testing.T) {
-	peers := makePeerList(5)
-	_, limit, paginated := applyPagination(peers, "0", "-1")
-	if len(paginated) != 5 {
-		t.Errorf("expected all 5 peers for negative limit, got %d", len(paginated))
-	}
-	if limit != 5 {
-		t.Errorf("expected limit=5 (all remaining), got %d", limit)
 	}
 }
 

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -125,6 +126,65 @@ func (s *PeerStore) List() []PeerRecord {
 		out = append(out, record)
 	}
 	return out
+}
+
+// Len returns the number of peer records without copying the store.
+func (s *PeerStore) Len() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return len(s.peers)
+}
+
+// ForEach calls fn for every peer record under a read lock.
+// fn must not call any PeerStore method that acquires a write lock (Set, Delete)
+// as that would deadlock.
+func (s *PeerStore) ForEach(fn func(PeerRecord)) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, record := range s.peers {
+		fn(record)
+	}
+}
+
+// peerSortKey is a lightweight tuple used to sort peers without copying full records.
+type peerSortKey struct {
+	peerID    string
+	createdAt time.Time
+}
+
+// ListPaginated returns a page of peer records sorted by (CreatedAt, PeerID)
+// and the total number of records. offset=0 and limit=0 returns all records.
+func (s *PeerStore) ListPaginated(offset, limit int) ([]PeerRecord, int) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	total := len(s.peers)
+	if offset >= total {
+		return []PeerRecord{}, total
+	}
+
+	// Sort lightweight keys to avoid copying all full records.
+	keys := make([]peerSortKey, 0, total)
+	for _, r := range s.peers {
+		keys = append(keys, peerSortKey{r.PeerID, r.CreatedAt})
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		if keys[i].createdAt.Equal(keys[j].createdAt) {
+			return keys[i].peerID < keys[j].peerID
+		}
+		return keys[i].createdAt.Before(keys[j].createdAt)
+	})
+
+	keys = keys[offset:]
+	if limit > 0 && limit < len(keys) {
+		keys = keys[:limit]
+	}
+
+	// Copy only the records in the page.
+	records := make([]PeerRecord, len(keys))
+	for i, k := range keys {
+		records[i] = s.peers[k.peerID]
+	}
+	return records, total
 }
 
 // LoadFromFile loads peer records from a JSON file (format: allowed_ips for IPv4/IPv6).

@@ -1,7 +1,7 @@
 package server
 
 import (
-	"fmt"
+	"context"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -12,12 +12,14 @@ import (
 	"golang.org/x/time/rate"
 )
 
+const testClientIP = "192.0.2.1"
+
 func TestRateLimitMiddlewareWithAllowedNets(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	_, net1, _ := net.ParseCIDR("10.0.0.0/24")
 	r := gin.New()
-	r.Use(newRateLimitMiddleware([]*net.IPNet{net1}))
+	r.Use(newRateLimitMiddleware(context.Background(), []*net.IPNet{net1}))
 	r.GET("/", func(c *gin.Context) { c.Status(http.StatusOK) })
 
 	// Many requests from whitelisted IP should all succeed.
@@ -36,7 +38,7 @@ func TestRateLimitMiddlewareWithoutAllowedNetsReturns429(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	r := gin.New()
-	r.Use(newRateLimitMiddleware(nil))
+	r.Use(newRateLimitMiddleware(context.Background(), nil))
 	r.GET("/", func(c *gin.Context) { c.Status(http.StatusOK) })
 
 	var lastCode int
@@ -55,44 +57,76 @@ func TestRateLimitMiddlewareWithoutAllowedNetsReturns429(t *testing.T) {
 	}
 }
 
-func TestIPRateLimiterCleanupTriggeredAtThreshold(t *testing.T) {
-	limiter := newIPRateLimiter(rateLimitRPS, rateLimitBurst)
-	now := time.Now()
+func TestIPRateLimiterStartCleanupEvictsStale(t *testing.T) {
+	limiter := newIPRateLimiter()
 
-	// Pre-fill the map just above threshold with stale entries
+	// Add a stale entry directly.
 	limiter.mu.Lock()
-	for i := 0; i <= rateLimiterCleanupThreshold; i++ {
-		ip := fmt.Sprintf("10.%d.%d.%d", (i>>16)&0xff, (i>>8)&0xff, i&0xff)
-		limiter.limiters[ip] = &ipLimiter{
-			limiter:  rate.NewLimiter(limiter.limit, limiter.burst),
-			lastSeen: now.Add(-2 * rateLimiterTTL), // stale
-		}
+	limiter.limiters[testClientIP] = &ipLimiter{
+		limiter:  rate.NewLimiter(limiter.limit, limiter.burst),
+		lastSeen: time.Now().Add(-2 * rateLimiterTTL),
 	}
 	limiter.mu.Unlock()
 
-	// get() for a new IP should trigger cleanupLocked since len > threshold
-	_ = limiter.get("192.0.2.99")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	// Use a very short interval so the test completes quickly.
+	limiter.startCleanup(ctx, 10*time.Millisecond)
 
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		limiter.mu.RLock()
+		remaining := len(limiter.limiters)
+		limiter.mu.RUnlock()
+		if remaining == 0 {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Error("stale entry was not evicted by background cleanup goroutine")
+}
+
+func TestRateLimitByIPMiddlewareEmptyClientIP(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	limiter := newIPRateLimiter()
+	r := gin.New()
+	r.Use(rateLimitByIPMiddleware(nil, limiter))
+	r.GET("/", func(c *gin.Context) { c.Status(http.StatusOK) })
+
+	// RemoteAddr ":9999" yields an empty host — Gin's ClientIP() returns "".
+	// The middleware must fall back to the "unknown" key instead of the empty string.
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.RemoteAddr = ":9999"
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Errorf("expected 200 for empty ClientIP (within burst), got %d", rec.Code)
+	}
+
+	// Verify the limiter created an entry under "unknown", not "".
 	limiter.mu.RLock()
-	remaining := len(limiter.limiters)
+	_, hasUnknown := limiter.limiters["unknown"]
+	_, hasEmpty := limiter.limiters[""]
 	limiter.mu.RUnlock()
-
-	// All stale entries should be gone; only the newly added IP remains
-	if remaining != 1 {
-		t.Errorf("expected 1 entry after cleanup (new IP), got %d", remaining)
+	if !hasUnknown {
+		t.Error("expected rate limiter entry under key \"unknown\" for empty ClientIP")
+	}
+	if hasEmpty {
+		t.Error("unexpected rate limiter entry under empty string key")
 	}
 }
 
 func TestIPRateLimiterCleanupLockedRemovesStaleEntries(t *testing.T) {
-	limiter := newIPRateLimiter(rateLimitRPS, rateLimitBurst)
+	limiter := newIPRateLimiter()
 	now := time.Now()
 
 	// Create an entry by calling get once.
-	_ = limiter.get("192.0.2.1")
+	_ = limiter.get(testClientIP)
 
 	limiter.mu.Lock()
 	// Mark it as very old so that cleanupLocked should evict it.
-	if entry, ok := limiter.limiters["192.0.2.1"]; ok {
+	if entry, ok := limiter.limiters[testClientIP]; ok {
 		entry.lastSeen = now.Add(-2 * rateLimiterTTL)
 	}
 	limiter.cleanupLocked(now)

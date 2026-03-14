@@ -1,0 +1,113 @@
+name: Benchmark
+
+on:
+  pull_request:
+    branches: ["main"]
+
+# Cancel stale runs when new commits are pushed to the PR.
+concurrency:
+  group: benchmark-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  benchmark-compare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      pull-requests: write
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install benchstat
+        run: go install golang.org/x/perf/cmd/benchstat@latest
+
+      - name: Run benchmarks on base branch
+        run: |
+          git checkout ${{ github.event.pull_request.base.sha }}
+          go test \
+            -bench=. \
+            -benchmem \
+            -benchtime=1s \
+            -count=6 \
+            -run='^$' \
+            ./internal/wireguard/ ./internal/server/ \
+            2>/dev/null > base.txt || true
+
+      - name: Run benchmarks on PR branch
+        run: |
+          git checkout ${{ github.sha }}
+          go test \
+            -bench=. \
+            -benchmem \
+            -benchtime=1s \
+            -count=6 \
+            -run='^$' \
+            ./internal/wireguard/ ./internal/server/ \
+            2>/dev/null | tee pr.txt
+
+      - name: Upload benchmark outputs
+        uses: actions/upload-artifact@v7
+        with:
+          name: bench-compare-pr${{ github.event.pull_request.number }}
+          path: |
+            base.txt
+            pr.txt
+          retention-days: 30
+
+      - name: Compare with benchstat
+        id: compare
+        run: |
+          OUTPUT=$(benchstat base.txt pr.txt 2>&1)
+          echo "result<<BENCHEOF" >> $GITHUB_OUTPUT
+          echo "$OUTPUT" >> $GITHUB_OUTPUT
+          echo "BENCHEOF" >> $GITHUB_OUTPUT
+
+      - name: Post PR comment
+        uses: actions/github-script@v8
+        env:
+          BENCH_RESULT: ${{ steps.compare.outputs.result }}
+        with:
+          script: |
+            const marker = '<!-- benchmark-compare -->';
+            const result = process.env.BENCH_RESULT;
+            const body = [
+              marker,
+              '## Benchmark comparison (base → PR)',
+              '',
+              '```',
+              result,
+              '```',
+              '',
+              '_Measured with [benchstat](https://pkg.go.dev/golang.org/x/perf/cmd/benchstat), 6 samples per benchmark._',
+            ].join('\n');
+
+            const comments = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            const existing = comments.data.find(c => c.body.startsWith(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }

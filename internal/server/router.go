@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"time"
@@ -12,7 +13,7 @@ import (
 
 const debugKey = "debug"
 
-func NewRouter(apiKey string, allowedNets []*net.IPNet, wgService *wireguard.WireGuardService, debug bool) *gin.Engine {
+func NewRouter(ctx context.Context, apiKey string, allowedNets []*net.IPNet, wgService *wireguard.WireGuardService, debug bool) *gin.Engine {
 	router := gin.New()
 	// Trust only loopback proxies (e.g. Caddy on the same host).
 	// This prevents X-Forwarded-For spoofing from external clients.
@@ -22,7 +23,7 @@ func NewRouter(apiKey string, allowedNets []*net.IPNet, wgService *wireguard.Wir
 	router.Use(requestIDMiddleware())
 	router.Use(securityHeadersMiddleware())
 	router.Use(bodyLimitMiddleware(MaxRequestBodySize))
-	router.Use(newRateLimitMiddleware(allowedNets))
+	router.Use(newRateLimitMiddleware(ctx, allowedNets))
 	router.Use(debugMiddleware(debug))
 	router.Use(gin.LoggerWithFormatter(func(param gin.LogFormatterParams) string {
 		if param.Path == "/healthz" || param.Path == "/readyz" {

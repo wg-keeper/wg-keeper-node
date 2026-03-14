@@ -120,9 +120,9 @@ func TestAllocateIPsIPv4RangeError(t *testing.T) {
 func TestAllocateOneIPv6LargeSubnet(t *testing.T) {
 	_, subnet, _ := net.ParseCIDR(subnet6TestCIDR64) // /64, ones=64 < 112
 	used := map[string]struct{}{}
-	ipNet, err := allocateOneIPv6(subnet, used)
+	ipNet, err := allocateOneIPv6(subnet, used, nil)
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		t.Fatalf(msgUnexpectedError, err)
 	}
 	if ipNet.IP.To4() != nil {
 		t.Error("expected IPv6 address")
@@ -307,7 +307,9 @@ func TestReconcileStoreWithSubnetsOutsidePeerRemoved(t *testing.T) {
 }
 
 func TestReconcileStoreWithSubnetsDeviceErrorLogged(t *testing.T) {
-	// ConfigureDevice fails: peer should still be removed from store.
+	// ConfigureDevice fails: peer must NOT be removed from the store to keep
+	// store and device in sync. Removing the store record while the peer still
+	// exists on the device would create an orphan invisible to the application.
 	_, subnet4, _ := net.ParseCIDR(subnetTestCIDR)
 	key, _ := wgtypes.GenerateKey()
 	svc := &WireGuardService{
@@ -325,11 +327,11 @@ func TestReconcileStoreWithSubnetsDeviceErrorLogged(t *testing.T) {
 	})
 
 	changed := svc.reconcileStoreWithSubnets()
-	if !changed {
-		t.Error("expected changed=true")
+	if changed {
+		t.Error("expected changed=false: store removal must be skipped when device removal fails")
 	}
-	if _, ok := svc.store.Get(testOutsidePeerID); ok {
-		t.Error("peer should be removed from store even when device fails")
+	if _, ok := svc.store.Get(testOutsidePeerID); !ok {
+		t.Error("peer must remain in store when device removal fails to keep store and device in sync")
 	}
 }
 
@@ -529,21 +531,6 @@ func TestAllocateIPsDualStack(t *testing.T) {
 	}
 }
 
-func TestAllocateIPsDeviceError(t *testing.T) {
-	_, subnet4, _ := net.ParseCIDR(subnetTestCIDR)
-	svc := &WireGuardService{
-		client:     fakeWGClient{err: errors.New(testErrDeviceError)},
-		deviceName: "wg0",
-		subnet4:    subnet4,
-		serverIP4:  net.ParseIP(ipServerTest),
-		store:      NewPeerStore(),
-	}
-	_, err := svc.allocateIPs([]string{FamilyIPv4})
-	if err == nil {
-		t.Fatal("expected error when device is unavailable")
-	}
-}
-
 // ---------- rotatePeer via EnsurePeer ----------
 
 func TestEnsurePeerRotateDeviceError(t *testing.T) {
@@ -647,7 +634,7 @@ func TestListPeersDeviceError(t *testing.T) {
 		deviceName: "wg0",
 		store:      NewPeerStore(),
 	}
-	_, err := svc.ListPeers()
+	_, _, err := svc.ListPeers(0, 0)
 	if err == nil {
 		t.Fatal("expected error when device is unavailable")
 	}
@@ -677,7 +664,7 @@ func TestListPeersActivePeer(t *testing.T) {
 		CreatedAt:    time.Now().UTC(),
 	})
 
-	list, err := svc.ListPeers()
+	list, _, err := svc.ListPeers(0, 0)
 	if err != nil {
 		t.Fatalf("ListPeers: %v", err)
 	}
@@ -870,7 +857,7 @@ func TestValidateAddressFamiliesDuplicateFamily(t *testing.T) {
 
 func TestResolveServerIP4IPv6Input(t *testing.T) {
 	_, subnet, _ := net.ParseCIDR(subnetTestCIDR)
-	_, err := resolveServerIP4(subnet, "fd00::1")
+	_, err := resolveServerIP4(subnet, ipv6TestAddr1)
 	if err == nil {
 		t.Fatal("expected error for IPv6 address passed as server_ip")
 	}
@@ -885,5 +872,218 @@ func TestNodeAddressFamiliesDualStack(t *testing.T) {
 	families := svc.NodeAddressFamilies()
 	if len(families) != 2 {
 		t.Errorf("expected 2 families, got %v", families)
+	}
+}
+
+// ---------- prevIPv6 ----------
+
+func TestPrevIPv6(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"fd00::5", "fd00::4"},
+		{"fd00::100", "fd00::ff"},
+		{ipv6TestAddr1, "fd00::"},
+	}
+	for _, tc := range cases {
+		got := prevIPv6(net.ParseIP(tc.in))
+		if got.String() != tc.want {
+			t.Errorf("prevIPv6(%s) = %s, want %s", tc.in, got, tc.want)
+		}
+	}
+}
+
+// ---------- ipv6SearchFrom ----------
+
+func TestIPv6SearchFromHintOutOfRange(t *testing.T) {
+	_, subnet, _ := net.ParseCIDR(subnet6TestCIDR) // fd00::/120
+	start, end, _ := ipv6Range(subnet)             // fd00::1 .. fd00::fe
+
+	// hint before start
+	h1 := net.ParseIP("fd00::").To16()
+	if from := ipv6SearchFrom(start, end, &h1); !from.Equal(start) {
+		t.Errorf("hint before start: expected start, got %s", from)
+	}
+	// hint after end
+	h2 := net.ParseIP("fd00::ff").To16()
+	if from := ipv6SearchFrom(start, end, &h2); !from.Equal(start) {
+		t.Errorf("hint after end: expected start, got %s", from)
+	}
+}
+
+func TestIPv6SearchFromHintAtEnd(t *testing.T) {
+	_, subnet, _ := net.ParseCIDR("fd00::/126") // fd00::1 .. fd00::2
+	start, end, _ := ipv6Range(subnet)
+
+	// hint = end: next overflows past end → searchFrom wraps to start
+	h := make(net.IP, 16)
+	copy(h, end)
+	from := ipv6SearchFrom(start, end, &h)
+	if !from.Equal(start) {
+		t.Errorf("hint at end: expected wrap to start, got %s", from)
+	}
+}
+
+// ---------- allocateOneIPv4 wrap-around ----------
+
+func TestAllocateOneIPv4WrapAround(t *testing.T) {
+	// /30: usable range 10.0.0.1 – 10.0.0.2 (2 IPs)
+	_, subnet, _ := net.ParseCIDR("10.0.0.0/30")
+	used := map[string]struct{}{"10.0.0.2": {}}
+	hint := ipToUint32(net.ParseIP(ipServerTest).To4()) // searchFrom = .2
+	ipNet, err := allocateOneIPv4(subnet, used, &hint)
+	if err != nil {
+		t.Fatalf(msgUnexpectedError, err)
+	}
+	if ipNet.IP.String() != ipServerTest {
+		t.Errorf("expected 10.0.0.1 (wrap-around), got %s", ipNet.IP)
+	}
+}
+
+// ---------- allocateOneIPv6 wrap-around (also exercises prevIPv6) ----------
+
+func TestAllocateOneIPv6WrapAround(t *testing.T) {
+	// fd00::/126: usable fd00::1 – fd00::2
+	_, subnet, _ := net.ParseCIDR("fd00::/126")
+	used := map[string]struct{}{"fd00::2": {}}
+	hint := net.ParseIP(ipv6TestAddr1).To16() // searchFrom = fd00::2
+	ipNet, err := allocateOneIPv6(subnet, used, &hint)
+	if err != nil {
+		t.Fatalf(msgUnexpectedError, err)
+	}
+	if ipNet.IP.String() != ipv6TestAddr1 {
+		t.Errorf("expected fd00::1 (wrap-around), got %s", ipNet.IP)
+	}
+}
+
+// ---------- large IPv4 subnet triggers maxIter cap ----------
+
+func TestAllocateOneIPv4LargeSubnetCap(t *testing.T) {
+	// /15 has 131070 usable IPs → triggers maxIter = maxIPv4Iter
+	_, subnet, _ := net.ParseCIDR("10.0.0.0/15")
+	used := make(map[string]struct{})
+	hint := uint32(0)
+	ipNet, err := allocateOneIPv4(subnet, used, &hint)
+	if err != nil {
+		t.Fatalf("unexpected error for large subnet: %v", err)
+	}
+	if ipNet.IP == nil {
+		t.Fatal("expected non-nil IP")
+	}
+}
+
+// ---------- scanIPv4Range / scanIPv6Range maxIter exceeded ----------
+
+func TestScanIPv4RangeMaxIterExceeded(t *testing.T) {
+	used := map[string]struct{}{}
+	n := 5
+	from := ipToUint32(net.ParseIP(ipServerTest).To4())
+	to := ipToUint32(net.ParseIP("10.0.0.10").To4())
+	if _, ok := scanIPv4Range(from, to, 5, &n, used, nil); ok {
+		t.Fatal("expected false when n already >= maxIter")
+	}
+}
+
+func TestScanIPv6RangeMaxIterExceeded(t *testing.T) {
+	used := map[string]struct{}{}
+	n := 5
+	from := net.ParseIP(ipv6TestAddr1).To16()
+	to := net.ParseIP("fd00::10").To16()
+	if _, ok := scanIPv6Range(from, to, 5, &n, used, nil); ok {
+		t.Fatal("expected false when n already >= maxIter")
+	}
+}
+
+// ---------- cleanup updates usedIPs ----------
+
+func TestCleanupExpiredPeerUpdatesUsedIPs(t *testing.T) {
+	_, subnet4, _ := net.ParseCIDR(subnetTestCIDR)
+	key, _ := wgtypes.GenerateKey()
+	expiredAt := time.Now().UTC().Add(-time.Hour)
+	svc := &WireGuardService{
+		client:     fakeWGClient{device: &wgtypes.Device{}},
+		deviceName: "wg0",
+		subnet4:    subnet4,
+		serverIP4:  net.ParseIP(ipServerTest),
+		store:      NewPeerStore(),
+	}
+	svc.initUsedIPs()
+	svc.store.Set(PeerRecord{
+		PeerID:     "expiring",
+		PublicKey:  key,
+		AllowedIPs: []net.IPNet{ipNet(t, ipPeerTest)},
+		CreatedAt:  time.Now().UTC(),
+		ExpiresAt:  &expiredAt,
+	})
+	svc.usedIPs[ipPeerTest] = struct{}{}
+
+	svc.cleanupExpiredPeers()
+
+	if _, ok := svc.usedIPs[ipPeerTest]; ok {
+		t.Error("expected IP to be removed from usedIPs after expiry cleanup")
+	}
+}
+
+// ---------- deleteExpiredPeerLocked race guard ----------
+
+// TestDeleteExpiredPeerLockedExtended verifies that deleteExpiredPeerLocked returns
+// (false, nil) when the peer's expiry was extended between the ForEach snapshot and
+// the lock acquisition (simulated by storing a future ExpiresAt before calling directly).
+func TestDeleteExpiredPeerLockedExtended(t *testing.T) {
+	_, subnet4, _ := net.ParseCIDR(subnetTestCIDR)
+	key, _ := wgtypes.GenerateKey()
+	psk, _ := wgtypes.GenerateKey()
+	future := time.Now().UTC().Add(time.Hour)
+	svc := &WireGuardService{
+		client:     fakeWGClient{device: &wgtypes.Device{}},
+		deviceName: "wg0",
+		subnet4:    subnet4,
+		serverIP4:  net.ParseIP(ipServerTest),
+		store:      NewPeerStore(),
+	}
+	svc.store.Set(PeerRecord{
+		PeerID:       "ext-peer",
+		PublicKey:    key,
+		PresharedKey: psk,
+		AllowedIPs:   []net.IPNet{ipNet(t, ipPeerTest)},
+		CreatedAt:    time.Now().UTC(),
+		ExpiresAt:    &future, // extended: ExpiresAt is in the future
+	})
+
+	deleted, err := svc.deleteExpiredPeerLocked("ext-peer", time.Now().UTC())
+	if err != nil {
+		t.Fatalf(msgUnexpectedError, err)
+	}
+	if deleted {
+		t.Fatal("expected deleted=false for peer whose expiry was extended")
+	}
+}
+
+// TestDeleteExpiredPeerLockedMadePermanent verifies that deleteExpiredPeerLocked returns
+// (false, nil) when the peer was made permanent (ExpiresAt set to nil) concurrently.
+func TestDeleteExpiredPeerLockedMadePermanent(t *testing.T) {
+	_, subnet4, _ := net.ParseCIDR(subnetTestCIDR)
+	key, _ := wgtypes.GenerateKey()
+	psk, _ := wgtypes.GenerateKey()
+	svc := &WireGuardService{
+		client:     fakeWGClient{device: &wgtypes.Device{}},
+		deviceName: "wg0",
+		subnet4:    subnet4,
+		serverIP4:  net.ParseIP(ipServerTest),
+		store:      NewPeerStore(),
+	}
+	svc.store.Set(PeerRecord{
+		PeerID:       "perm-peer",
+		PublicKey:    key,
+		PresharedKey: psk,
+		AllowedIPs:   []net.IPNet{ipNet(t, ipPeerTest)},
+		CreatedAt:    time.Now().UTC(),
+		ExpiresAt:    nil, // permanent peer
+	})
+
+	deleted, err := svc.deleteExpiredPeerLocked("perm-peer", time.Now().UTC())
+	if err != nil {
+		t.Fatalf(msgUnexpectedError, err)
+	}
+	if deleted {
+		t.Fatal("expected deleted=false for permanent peer")
 	}
 }

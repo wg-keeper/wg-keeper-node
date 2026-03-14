@@ -15,7 +15,10 @@ import (
 // validNetworkInterface matches safe Linux network interface names: alphanumeric, hyphens, underscores, dots.
 var validNetworkInterface = regexp.MustCompile(`^[a-zA-Z0-9\-_.]+$`)
 
-const errMsgRequired = "%s is required"
+const (
+	errMsgRequired  = "%s is required"
+	minAPIKeyLength = 16
+)
 
 type Config struct {
 	Port          int
@@ -120,6 +123,9 @@ func parseServerAndAuth(fc fileConfig) (portValue int, apiKey, tlsCert, tlsKey s
 	apiKey, err = requireString("auth.api_key", fc.Auth.APIKey)
 	if err != nil {
 		return 0, "", "", "", nil, err
+	}
+	if len(apiKey) < minAPIKeyLength {
+		return 0, "", "", "", nil, fmt.Errorf("auth.api_key must be at least %d characters", minAPIKeyLength)
 	}
 	tlsCert, tlsKey, err = parseOptionalTLS(fc.Server.TLSCert, fc.Server.TLSKey)
 	if err != nil {
@@ -281,10 +287,15 @@ func optionalCIDR(field, value string) (string, error) {
 	if out == "" {
 		return "", nil
 	}
-	if _, _, err := net.ParseCIDR(out); err != nil {
+	_, ipNet, err := net.ParseCIDR(out)
+	if err != nil {
 		return "", fmt.Errorf("%s must be a valid CIDR", field)
 	}
-	return out, nil
+	// Return the canonical network string from the parser (e.g. "10.0.0.0/24")
+	// rather than the raw input. This is a defense-in-depth measure: the canonical
+	// form is guaranteed safe to interpolate into iptables PostUp/PostDown commands
+	// even if a future code path skips the WANInterface regex check.
+	return ipNet.String(), nil
 }
 
 func optionalIPv4(field, value string) (string, error) {

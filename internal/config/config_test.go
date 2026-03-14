@@ -11,7 +11,7 @@ const msgExpectedNoError = "expected no error, got %v"
 
 const (
 	testPort         = "51821"
-	testAPIKey       = "test-key"
+	testAPIKey       = "test-api-key-1234"
 	testWGSubnet4    = "10.0.0.0/24"
 	testWGServerIP4  = "10.0.0.1"
 	testWGSubnet6    = "fd00::/112"
@@ -34,7 +34,7 @@ func TestLoadConfigValid(t *testing.T) {
 server:
   port: "51821"
 auth:
-  api_key: "test-key"
+  api_key: "test-api-key-1234"
 wireguard:
   interface: "wg0"
   subnet: "10.0.0.0/24"
@@ -52,7 +52,7 @@ wireguard:
 	if cfg.Port != 51821 {
 		t.Fatalf("expected port 51821, got %d", cfg.Port)
 	}
-	if cfg.APIKey != "test-key" {
+	if cfg.APIKey != "test-api-key-1234" {
 		t.Fatalf("unexpected api key: %q", cfg.APIKey)
 	}
 	if cfg.WGInterface != "wg0" {
@@ -86,7 +86,7 @@ func TestLoadConfigInvalidPort(t *testing.T) {
 server:
   port: "invalid"
 auth:
-  api_key: "test-key"
+  api_key: "test-api-key-1234"
 wireguard:
   interface: "wg0"
   subnet: "10.0.0.0/24"
@@ -104,7 +104,7 @@ func TestLoadConfigInvalidSubnet(t *testing.T) {
 server:
   port: "51821"
 auth:
-  api_key: "test-key"
+  api_key: "test-api-key-1234"
 wireguard:
   interface: "wg0"
   subnet: "not-a-cidr"
@@ -124,7 +124,7 @@ func TestLoadConfigNoSubnet(t *testing.T) {
 server:
   port: "51821"
 auth:
-  api_key: "test-key"
+  api_key: "test-api-key-1234"
 wireguard:
   interface: "wg0"
   listen_port: 51820
@@ -174,7 +174,7 @@ func TestLoadConfigInvalidListenPort(t *testing.T) {
 server:
   port: "51821"
 auth:
-  api_key: "test-key"
+  api_key: "test-api-key-1234"
 wireguard:
   interface: "wg0"
   subnet: "10.0.0.0/24"
@@ -192,7 +192,7 @@ func TestLoadConfigInvalidServerIP(t *testing.T) {
 server:
   port: "51821"
 auth:
-  api_key: "test-key"
+  api_key: "test-api-key-1234"
 wireguard:
   interface: "wg0"
   subnet: "10.0.0.0/24"
@@ -211,7 +211,7 @@ func TestLoadConfigMissingInterface(t *testing.T) {
 server:
   port: "51821"
 auth:
-  api_key: "test-key"
+  api_key: "test-api-key-1234"
 wireguard:
   interface: ""
   subnet: "10.0.0.0/24"
@@ -231,7 +231,7 @@ server:
   tls_cert: "/etc/certs/server.pem"
   tls_key: "/etc/certs/server-key.pem"
 auth:
-  api_key: "test-key"
+  api_key: "test-api-key-1234"
 wireguard:
   interface: "wg0"
   subnet: "10.0.0.0/24"
@@ -260,7 +260,7 @@ server:
   port: "51821"
   tls_cert: "/etc/certs/server.pem"
 auth:
-  api_key: "test-key"
+  api_key: "test-api-key-1234"
 wireguard:
   interface: "wg0"
   subnet: "10.0.0.0/24"
@@ -281,7 +281,7 @@ server:
   port: "51821"
   tls_key: "/etc/certs/server-key.pem"
 auth:
-  api_key: "test-key"
+  api_key: "test-api-key-1234"
 wireguard:
   interface: "wg0"
   subnet: "10.0.0.0/24"
@@ -343,7 +343,7 @@ server:
     - "10.0.0.0/24"
     - "not-an-ip"
 auth:
-  api_key: "test-key"
+  api_key: "test-api-key-1234"
 wireguard:
   interface: "wg0"
   subnet: "10.0.0.0/24"
@@ -364,7 +364,7 @@ func TestLoadConfigPeerStoreFile(t *testing.T) {
 server:
   port: "51821"
 auth:
-  api_key: "test-key"
+  api_key: "test-api-key-1234"
 wireguard:
   interface: "wg0"
   subnet: "10.0.0.0/24"
@@ -391,7 +391,7 @@ const subnetValidationBase = `
 server:
   port: "51821"
 auth:
-  api_key: "test-key"
+  api_key: "test-api-key-1234"
 wireguard:
   interface: "wg0"
   listen_port: 51820
@@ -632,7 +632,7 @@ func TestLoadConfigInvalidServerIP6(t *testing.T) {
 server:
   port: "51821"
 auth:
-  api_key: "test-key"
+  api_key: "test-api-key-1234"
 wireguard:
   interface: "wg0"
   subnet6: "fd00::/112"
