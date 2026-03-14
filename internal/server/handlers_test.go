@@ -678,3 +678,11 @@ func TestListPeersLimitLargerThanTotal(t *testing.T) {
 		t.Errorf("expected limit=100 (requested), got %v", limit)
 	}
 }
+
+func TestListPeersDefaultLimitAppliedWhenAbsent(t *testing.T) {
+	peers := makePeerList(3)
+	_, _, meta := listPeersWithPagination(t, peers, "")
+	if limit, _ := meta["limit"].(float64); limit != defaultPaginationLimit {
+		t.Errorf("expected default limit=%d when ?limit absent, got %v", defaultPaginationLimit, limit)
+	}
+}
