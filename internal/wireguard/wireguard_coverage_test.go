@@ -944,7 +944,7 @@ func TestAllocateOneIPv6WrapAround(t *testing.T) {
 	// fd00::/126: usable fd00::1 – fd00::2
 	_, subnet, _ := net.ParseCIDR("fd00::/126")
 	used := map[string]struct{}{"fd00::2": {}}
-	hint := net.IP(net.ParseIP(ipv6TestAddr1).To16()) // searchFrom = fd00::2
+	hint := net.ParseIP(ipv6TestAddr1).To16() // searchFrom = fd00::2
 	ipNet, err := allocateOneIPv6(subnet, used, &hint)
 	if err != nil {
 		t.Fatalf(msgUnexpectedError, err)
