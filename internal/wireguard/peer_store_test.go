@@ -13,6 +13,11 @@ import (
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 )
 
+const (
+	testAllowedIP = "10.0.0.1/32"
+	testPeersFile = "peers.json"
+)
+
 func makeStorePeers(t *testing.T, store *PeerStore, n int) {
 	t.Helper()
 	base := time.Now().UTC()
@@ -64,13 +69,13 @@ func TestSaveToFileAndLoadFromFileRoundtrip(t *testing.T) {
 		PeerID:       "roundtrip",
 		PublicKey:    key,
 		PresharedKey: psk,
-		AllowedIPs:   mustParseCIDRs(t, "10.0.0.1/32", "fd00::1/128"),
+		AllowedIPs:   mustParseCIDRs(t, testAllowedIP, "fd00::1/128"),
 		CreatedAt:    time.Now().UTC(),
 		ExpiresAt:    nil,
 	})
 
 	dir := t.TempDir()
-	path := filepath.Join(dir, "peers.json")
+	path := filepath.Join(dir, testPeersFile)
 	if err := store.SaveToFile(path); err != nil {
 		t.Fatalf("SaveToFile: %v", err)
 	}
@@ -105,7 +110,7 @@ func TestSaveToFileAndLoadFromFileRoundtripWithPresharedKey(t *testing.T) {
 	})
 
 	dir := t.TempDir()
-	path := filepath.Join(dir, "peers.json")
+	path := filepath.Join(dir, testPeersFile)
 	if err := store.SaveToFile(path); err != nil {
 		t.Fatalf("SaveToFile: %v", err)
 	}
@@ -149,7 +154,7 @@ func TestLoadFromFileIfExistsMissingFile(t *testing.T) {
 
 func TestLoadFromFileIfExistsEmptyFile(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "peers.json")
+	path := filepath.Join(dir, testPeersFile)
 	if err := os.WriteFile(path, nil, 0o600); err != nil {
 		t.Fatalf("write empty file: %v", err)
 	}
@@ -166,7 +171,7 @@ func TestStoredToRecordEmptyPeerID(t *testing.T) {
 		PeerID:       "  ",
 		PublicKey:    key.String(),
 		PresharedKey: psk.String(),
-		AllowedIPs:   []string{"10.0.0.1/32"},
+		AllowedIPs:   []string{testAllowedIP},
 		CreatedAt:    time.Now().UTC(),
 	}
 	_, err := storedToRecord(stored)
@@ -208,7 +213,7 @@ func TestStoredToRecordEmptyPresharedKey(t *testing.T) {
 		PeerID:       peerIDTest,
 		PublicKey:    key.String(),
 		PresharedKey: "",
-		AllowedIPs:   []string{"10.0.0.1/32"},
+		AllowedIPs:   []string{testAllowedIP},
 		CreatedAt:    time.Now().UTC(),
 	}
 	_, err := storedToRecord(stored)
@@ -224,7 +229,7 @@ func TestStoredToRecordInvalidPublicKey(t *testing.T) {
 	stored := peerRecordStored{
 		PeerID:     peerIDTest,
 		PublicKey:  "not-a-valid-key",
-		AllowedIPs: []string{"10.0.0.1/32"},
+		AllowedIPs: []string{testAllowedIP},
 	}
 	_, err := storedToRecord(stored)
 	if err == nil {
@@ -239,7 +244,7 @@ func TestStoredToRecordEmptyCIDRInAllowedIPs(t *testing.T) {
 		PeerID:       peerIDTest,
 		PublicKey:    key.String(),
 		PresharedKey: psk.String(),
-		AllowedIPs:   []string{"", "10.0.0.1/32"}, // empty entry should be skipped
+		AllowedIPs:   []string{"", testAllowedIP}, // empty entry should be skipped
 		CreatedAt:    time.Now().UTC(),
 	}
 	rec, err := storedToRecord(stored)
@@ -293,7 +298,7 @@ func TestLoadFromFileReadError(t *testing.T) {
 
 func TestLoadFromFileInvalidJSON(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "peers.json")
+	path := filepath.Join(dir, testPeersFile)
 	if err := os.WriteFile(path, []byte("{not valid json"), 0o600); err != nil {
 		t.Fatalf("write: %v", err)
 	}
@@ -311,7 +316,7 @@ func TestPeerStoreConcurrentAccess(t *testing.T) {
 		PeerID:       peerIDTest,
 		PublicKey:    key,
 		PresharedKey: psk,
-		AllowedIPs:   mustParseCIDRs(t, "10.0.0.1/32"),
+		AllowedIPs:   mustParseCIDRs(t, testAllowedIP),
 	}
 	var wg sync.WaitGroup
 	for i := 0; i < 50; i++ {
@@ -336,12 +341,12 @@ func TestLoadFromFileIfExistsPermissionError(t *testing.T) {
 		t.Skip("running as root, cannot test permission errors")
 	}
 	dir := t.TempDir()
-	path := filepath.Join(dir, "peers.json")
+	path := filepath.Join(dir, testPeersFile)
 	if err := os.WriteFile(path, []byte(`[]`), 0o000); err != nil {
 		t.Fatalf("write: %v", err)
 	}
 	store := NewPeerStore()
-	if err := store.LoadFromFileIfExists(path); err == nil {
+	if store.LoadFromFileIfExists(path) == nil {
 		t.Fatal("expected error for permission-denied file (non-ErrNotExist)")
 	}
 }
@@ -352,9 +357,9 @@ func TestLoadFromDataDuplicatePublicKey(t *testing.T) {
 	keyStr := key.String()
 	pskStr := psk.String()
 	data := []byte(fmt.Sprintf(`[
-		{"peer_id":"a","public_key":%q,"preshared_key":%q,"allowed_ips":["10.0.0.1/32"],"created_at":"2024-01-01T00:00:00Z"},
+		{"peer_id":"a","public_key":%q,"preshared_key":%q,"allowed_ips":[%q],"created_at":"2024-01-01T00:00:00Z"},
 		{"peer_id":"b","public_key":%q,"preshared_key":%q,"allowed_ips":["10.0.0.2/32"],"created_at":"2024-01-01T00:00:00Z"}
-	]`, keyStr, pskStr, keyStr, pskStr))
+	]`, keyStr, pskStr, testAllowedIP, keyStr, pskStr))
 	store := NewPeerStore()
 	err := store.loadFromData(data)
 	if err == nil {

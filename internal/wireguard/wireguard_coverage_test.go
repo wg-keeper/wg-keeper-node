@@ -17,14 +17,15 @@ const (
 	testServerIP6InBig = "fd00::5"
 	testServerIP6Out   = "fd01::1"
 
-	testPeerIP4              = "10.0.0.2/32"
-	testOutsidePeerID        = "outside-peer"
-	testErrDeviceBusyMessage = "device busy"
-	testErrDeviceError       = "device error"
-	testErrDeviceOffline     = "device offline"
-	testExpiryPeerID         = "expiry-peer"
-	testDelFailPeerID        = "del-fail"
-	msgExpectedTwoFamilies   = "expected 2 families, got %v"
+	testPeerIP4                  = "10.0.0.2/32"
+	testOutsidePeerID            = "outside-peer"
+	testErrDeviceBusyMessage     = "device busy"
+	testErrDeviceError           = "device error"
+	testErrDeviceOffline         = "device offline"
+	testExpiryPeerID             = "expiry-peer"
+	testDelFailPeerID            = "del-fail"
+	msgExpectedTwoFamilies       = "expected 2 families, got %v"
+	msgExpectedDeviceUnavailable = "expected error when device is unavailable"
 )
 
 // ---------- setupSubnet4 / setupSubnet6 ----------
@@ -313,7 +314,7 @@ func TestReconcileStoreWithSubnetsDeviceErrorLogged(t *testing.T) {
 	_, subnet4, _ := net.ParseCIDR(subnetTestCIDR)
 	key, _ := wgtypes.GenerateKey()
 	svc := &WireGuardService{
-		client:     fakeWGClient{device: &wgtypes.Device{}, configureErr: errors.New("device busy")},
+		client:     fakeWGClient{device: &wgtypes.Device{}, configureErr: errors.New(testErrDeviceBusyMessage)},
 		deviceName: "wg0",
 		subnet4:    subnet4,
 		serverIP4:  net.ParseIP(ipServerTest),
@@ -388,8 +389,8 @@ func TestReconcileStoreWithDeviceDeviceError(t *testing.T) {
 		deviceName: "wg0",
 		store:      NewPeerStore(),
 	}
-	if err := svc.reconcileStoreWithDevice(); err == nil {
-		t.Fatal("expected error when device is unavailable")
+	if svc.reconcileStoreWithDevice() == nil {
+		t.Fatal(msgExpectedDeviceUnavailable)
 	}
 }
 
@@ -622,7 +623,7 @@ func TestStatsDeviceError(t *testing.T) {
 	}
 	_, err := svc.Stats()
 	if err == nil {
-		t.Fatal("expected error when device is unavailable")
+		t.Fatal(msgExpectedDeviceUnavailable)
 	}
 }
 
@@ -636,7 +637,7 @@ func TestListPeersDeviceError(t *testing.T) {
 	}
 	_, _, err := svc.ListPeers(0, 0)
 	if err == nil {
-		t.Fatal("expected error when device is unavailable")
+		t.Fatal(msgExpectedDeviceUnavailable)
 	}
 }
 
@@ -751,7 +752,7 @@ func TestPeerRecordToListItemIPv6Family(t *testing.T) {
 	}
 	item := peerRecordToListItem(rec, wgtypes.Peer{}, time.Now())
 	if len(item.AddressFamilies) != 2 {
-		t.Errorf("expected 2 families, got %v", item.AddressFamilies)
+		t.Errorf(msgExpectedTwoFamilies, item.AddressFamilies)
 	}
 }
 
@@ -796,7 +797,7 @@ func TestDeletePeerDeviceError(t *testing.T) {
 	_, subnet4, _ := net.ParseCIDR(subnetTestCIDR)
 	key, _ := wgtypes.GenerateKey()
 	svc := &WireGuardService{
-		client:     fakeWGClient{device: &wgtypes.Device{}, configureErr: errors.New("device busy")},
+		client:     fakeWGClient{device: &wgtypes.Device{}, configureErr: errors.New(testErrDeviceBusyMessage)},
 		deviceName: "wg0",
 		subnet4:    subnet4,
 		serverIP4:  net.ParseIP(ipServerTest),
@@ -809,7 +810,7 @@ func TestDeletePeerDeviceError(t *testing.T) {
 		AllowedIPs:   mustParseCIDRs(t, testPeerIP4),
 	})
 
-	if err := svc.DeletePeer(testDelFailPeerID); err == nil {
+	if svc.DeletePeer(testDelFailPeerID) == nil {
 		t.Fatal("expected error when ConfigureDevice fails")
 	}
 	// Peer should still be in store since device removal failed
@@ -828,7 +829,7 @@ func TestServerInfoDeviceError(t *testing.T) {
 	}
 	_, _, err := svc.ServerInfo()
 	if err == nil {
-		t.Fatal("expected error when device is unavailable")
+		t.Fatal(msgExpectedDeviceUnavailable)
 	}
 }
 
@@ -871,7 +872,7 @@ func TestNodeAddressFamiliesDualStack(t *testing.T) {
 	svc := &WireGuardService{subnet4: subnet4, subnet6: subnet6}
 	families := svc.NodeAddressFamilies()
 	if len(families) != 2 {
-		t.Errorf("expected 2 families, got %v", families)
+		t.Errorf(msgExpectedTwoFamilies, families)
 	}
 }
 

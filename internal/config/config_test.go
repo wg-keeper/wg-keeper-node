@@ -538,13 +538,13 @@ func TestParseOneAllowedIPInvalidCIDR(t *testing.T) {
 // ---------- validateWireGuardSubnet helpers ----------
 
 func TestValidateWireGuardSubnet4RejectsIPv6(t *testing.T) {
-	if err := validateWireGuardSubnet4("fd00::/64"); err == nil {
+	if validateWireGuardSubnet4("fd00::/64") == nil {
 		t.Fatal("expected error for IPv6 CIDR in validateWireGuardSubnet4")
 	}
 }
 
 func TestValidateWireGuardSubnet4PrefixTooLong(t *testing.T) {
-	if err := validateWireGuardSubnet4("10.0.0.0/31"); err == nil {
+	if validateWireGuardSubnet4("10.0.0.0/31") == nil {
 		t.Fatal("expected error for /31 IPv4 subnet in validateWireGuardSubnet4")
 	}
 	if err := validateWireGuardSubnet4("10.0.0.0/30"); err != nil {
@@ -553,7 +553,7 @@ func TestValidateWireGuardSubnet4PrefixTooLong(t *testing.T) {
 }
 
 func TestValidateWireGuardSubnet6RejectsIPv4(t *testing.T) {
-	if err := validateWireGuardSubnet6("10.0.0.0/24"); err == nil {
+	if validateWireGuardSubnet6("10.0.0.0/24") == nil {
 		t.Fatal("expected error for IPv4 CIDR in validateWireGuardSubnet6")
 	}
 }
@@ -620,7 +620,7 @@ func TestParsePortTooHigh(t *testing.T) {
 }
 
 func TestRequirePortZero(t *testing.T) {
-	if err := requirePort("field", 0); err == nil {
+	if requirePort("field", 0) == nil {
 		t.Fatal("expected error for port 0")
 	}
 }
@@ -666,7 +666,7 @@ wireguard:
 }
 
 func TestValidateWireGuardSubnet6PrefixTooLong(t *testing.T) {
-	if err := validateWireGuardSubnet6("fd00::/127"); err == nil {
+	if validateWireGuardSubnet6("fd00::/127") == nil {
 		t.Fatal("expected error for /127 IPv6 subnet in validateWireGuardSubnet6")
 	}
 	if err := validateWireGuardSubnet6("fd00::/126"); err != nil {

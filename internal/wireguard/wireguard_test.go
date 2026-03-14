@@ -14,14 +14,17 @@ import (
 )
 
 const (
-	msgUnexpectedError  = "unexpected error: %v"
-	msgListPeersFmt     = "ListPeers: %v"
-	ipServerTest        = "10.0.0.1"
-	ipPeerTest          = "10.0.0.2"
-	peerIDTest          = "peer-1"
-	peerIDNewPeer       = "new-peer"
-	subnetTestCIDR      = "10.0.0.0/24"
-	subnetSmallTestCIDR = "10.0.0.0/29"
+	msgUnexpectedError     = "unexpected error: %v"
+	msgListPeersFmt        = "ListPeers: %v"
+	msgSavePeerStoreErr    = "expected 'save peer store' in error, got %v"
+	persistPathNonexistent = "/nonexistent-dir-xyz/peers.json"
+	savePeerStoreSubstr    = "save peer store"
+	ipServerTest           = "10.0.0.1"
+	ipPeerTest             = "10.0.0.2"
+	peerIDTest             = "peer-1"
+	peerIDNewPeer          = "new-peer"
+	subnetTestCIDR         = "10.0.0.0/24"
+	subnetSmallTestCIDR    = "10.0.0.0/29"
 )
 
 type fakeWGClient struct {
@@ -511,14 +514,14 @@ func TestEnsurePeerNewPeerSavePersistError(t *testing.T) {
 		subnet4:     subnet4,
 		serverIP4:   net.ParseIP(ipServerTest),
 		store:       NewPeerStore(),
-		persistPath: "/nonexistent-dir-xyz/peers.json",
+		persistPath: persistPathNonexistent,
 	}
 	_, err := svc.EnsurePeer(peerIDNewPeer, nil, nil)
 	if err == nil {
 		t.Fatal("expected error when savePersist fails for new peer")
 	}
-	if !strings.Contains(err.Error(), "save peer store") {
-		t.Errorf("expected 'save peer store' in error, got %v", err)
+	if !strings.Contains(err.Error(), savePeerStoreSubstr) {
+		t.Errorf(msgSavePeerStoreErr, err)
 	}
 }
 
@@ -531,7 +534,7 @@ func TestDeletePeerSavePersistError(t *testing.T) {
 		subnet4:     subnet4,
 		serverIP4:   net.ParseIP(ipServerTest),
 		store:       NewPeerStore(),
-		persistPath: "/nonexistent-dir-xyz/peers.json",
+		persistPath: persistPathNonexistent,
 	}
 	svc.store.Set(PeerRecord{
 		PeerID:       peerIDTest,
@@ -543,8 +546,8 @@ func TestDeletePeerSavePersistError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error when savePersist fails after delete")
 	}
-	if !strings.Contains(err.Error(), "save peer store") {
-		t.Errorf("expected 'save peer store' in error, got %v", err)
+	if !strings.Contains(err.Error(), savePeerStoreSubstr) {
+		t.Errorf(msgSavePeerStoreErr, err)
 	}
 }
 
@@ -557,7 +560,7 @@ func TestEnsurePeerRotateSavePersistError(t *testing.T) {
 		subnet4:     subnet4,
 		serverIP4:   net.ParseIP(ipServerTest),
 		store:       NewPeerStore(),
-		persistPath: "/nonexistent-dir-xyz/peers.json",
+		persistPath: persistPathNonexistent,
 	}
 	svc.store.Set(PeerRecord{
 		PeerID:       peerIDTest,
@@ -570,8 +573,8 @@ func TestEnsurePeerRotateSavePersistError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error when savePersist fails during rotation")
 	}
-	if !strings.Contains(err.Error(), "save peer store") {
-		t.Errorf("expected 'save peer store' in error, got %v", err)
+	if !strings.Contains(err.Error(), savePeerStoreSubstr) {
+		t.Errorf(msgSavePeerStoreErr, err)
 	}
 }
 
