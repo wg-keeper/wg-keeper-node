@@ -21,79 +21,36 @@ func TestBodyLimitMiddleware(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	const limit = 10
 
-	t.Run("get_request_not_limited", func(t *testing.T) {
-		r := gin.New()
-		r.Use(bodyLimitMiddleware(limit))
-		r.GET("/", func(c *gin.Context) { c.Status(http.StatusOK) })
-		body := bytes.NewReader(make([]byte, limit+5))
-		req := httptest.NewRequest(http.MethodGet, "/", body)
-		rec := httptest.NewRecorder()
-		r.ServeHTTP(rec, req)
-		if rec.Code != http.StatusOK {
-			t.Errorf("GET with body: got status %d, want 200", rec.Code)
-		}
-	})
+	tests := []struct {
+		name   string
+		method string
+		body   io.Reader
+		want   int
+	}{
+		{"get_request_not_limited", http.MethodGet, bytes.NewReader(make([]byte, limit+5)), http.StatusOK},
+		{"post_within_limit_calls_next", http.MethodPost, bytes.NewReader([]byte("12345")), http.StatusOK},
+		{"post_over_limit_returns_413", http.MethodPost, bytes.NewReader(make([]byte, limit+1)), http.StatusRequestEntityTooLarge},
+		{"put_over_limit_returns_413", http.MethodPut, bytes.NewReader(make([]byte, limit+1)), http.StatusRequestEntityTooLarge},
+		{"nil_body_calls_next", http.MethodPost, nil, http.StatusOK},
+		{"post_read_error_returns_400", http.MethodPost, errReader{}, http.StatusBadRequest},
+	}
 
-	t.Run("post_within_limit_calls_next", func(t *testing.T) {
-		r := gin.New()
-		r.Use(bodyLimitMiddleware(limit))
-		r.POST("/", func(c *gin.Context) { c.Status(http.StatusOK) })
-		req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader([]byte("12345")))
-		rec := httptest.NewRecorder()
-		r.ServeHTTP(rec, req)
-		if rec.Code != http.StatusOK {
-			t.Errorf("status: got %d, want 200", rec.Code)
-		}
-	})
-
-	t.Run("post_over_limit_returns_413", func(t *testing.T) {
-		r := gin.New()
-		r.Use(bodyLimitMiddleware(limit))
-		r.POST("/", func(c *gin.Context) { c.Status(http.StatusOK) })
-		req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(make([]byte, limit+1)))
-		rec := httptest.NewRecorder()
-		r.ServeHTTP(rec, req)
-		if rec.Code != http.StatusRequestEntityTooLarge {
-			t.Errorf("status: got %d, want 413", rec.Code)
-		}
-	})
-
-	t.Run("put_over_limit_returns_413", func(t *testing.T) {
-		r := gin.New()
-		r.Use(bodyLimitMiddleware(limit))
-		r.PUT("/", func(c *gin.Context) { c.Status(http.StatusOK) })
-		req := httptest.NewRequest(http.MethodPut, "/", bytes.NewReader(make([]byte, limit+1)))
-		rec := httptest.NewRecorder()
-		r.ServeHTTP(rec, req)
-		if rec.Code != http.StatusRequestEntityTooLarge {
-			t.Errorf("status: got %d, want 413", rec.Code)
-		}
-	})
-
-	t.Run("nil_body_calls_next", func(t *testing.T) {
-		r := gin.New()
-		r.Use(bodyLimitMiddleware(limit))
-		r.POST("/", func(c *gin.Context) { c.Status(http.StatusOK) })
-		req := httptest.NewRequest(http.MethodPost, "/", nil)
-		req.Body = nil
-		rec := httptest.NewRecorder()
-		r.ServeHTTP(rec, req)
-		if rec.Code != http.StatusOK {
-			t.Errorf("status: got %d, want 200", rec.Code)
-		}
-	})
-
-	t.Run("post_read_error_returns_400", func(t *testing.T) {
-		r := gin.New()
-		r.Use(bodyLimitMiddleware(limit))
-		r.POST("/", func(c *gin.Context) { c.Status(http.StatusOK) })
-		req := httptest.NewRequest(http.MethodPost, "/", errReader{})
-		rec := httptest.NewRecorder()
-		r.ServeHTTP(rec, req)
-		if rec.Code != http.StatusBadRequest {
-			t.Errorf("status: got %d, want 400", rec.Code)
-		}
-	})
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			r := gin.New()
+			r.Use(bodyLimitMiddleware(limit))
+			r.Handle(tc.method, "/", func(c *gin.Context) { c.Status(http.StatusOK) })
+			req := httptest.NewRequest(tc.method, "/", tc.body)
+			if tc.body == nil {
+				req.Body = nil
+			}
+			rec := httptest.NewRecorder()
+			r.ServeHTTP(rec, req)
+			if rec.Code != tc.want {
+				t.Errorf("status: got %d, want %d", rec.Code, tc.want)
+			}
+		})
+	}
 
 	t.Run("delete_over_limit_body_is_restricted", func(t *testing.T) {
 		// MaxBytesReader must be applied even for DELETE so that oversized chunked
@@ -113,7 +70,7 @@ func TestBodyLimitMiddleware(t *testing.T) {
 		rec := httptest.NewRecorder()
 		r.ServeHTTP(rec, req)
 		if rec.Code != http.StatusOK {
-			t.Errorf("status: got %d, want 200", rec.Code)
+			t.Errorf("status: got %d, want %d", rec.Code, http.StatusOK)
 		}
 	})
 }

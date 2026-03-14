@@ -11,7 +11,7 @@ const msgExpectedNoError = "expected no error, got %v"
 
 const (
 	testPort         = "51821"
-	testAPIKey       = "test-api-key-secure-key-longer!!"
+	testAPIKey       = "test-api-key-secure-key-longer!!" //nolint:gosec // test credential
 	testWGSubnet4    = "10.0.0.0/24"
 	testWGServerIP4  = "10.0.0.1"
 	testWGSubnet6    = "fd00::/112"

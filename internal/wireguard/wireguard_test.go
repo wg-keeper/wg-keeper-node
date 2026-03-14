@@ -639,7 +639,7 @@ func TestRemovePeerUnsafeDeviceError(t *testing.T) {
 	svc.store.Set(record)
 	svc.usedIPs = map[string]struct{}{ipPeerTest: {}}
 
-	if err := svc.removePeerUnsafe(record); err == nil {
+	if svc.removePeerUnsafe(record) == nil {
 		t.Fatal("expected error from device, got nil")
 	}
 	if _, ok := svc.store.Get(peerIDTest); !ok {
