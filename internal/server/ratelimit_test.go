@@ -12,6 +12,8 @@ import (
 	"golang.org/x/time/rate"
 )
 
+const testClientIP = "192.0.2.1"
+
 func TestRateLimitMiddlewareWithAllowedNets(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -60,7 +62,7 @@ func TestIPRateLimiterStartCleanupEvictsStale(t *testing.T) {
 
 	// Add a stale entry directly.
 	limiter.mu.Lock()
-	limiter.limiters["192.0.2.1"] = &ipLimiter{
+	limiter.limiters[testClientIP] = &ipLimiter{
 		limiter:  rate.NewLimiter(limiter.limit, limiter.burst),
 		lastSeen: time.Now().Add(-2 * rateLimiterTTL),
 	}
@@ -89,11 +91,11 @@ func TestIPRateLimiterCleanupLockedRemovesStaleEntries(t *testing.T) {
 	now := time.Now()
 
 	// Create an entry by calling get once.
-	_ = limiter.get("192.0.2.1")
+	_ = limiter.get(testClientIP)
 
 	limiter.mu.Lock()
 	// Mark it as very old so that cleanupLocked should evict it.
-	if entry, ok := limiter.limiters["192.0.2.1"]; ok {
+	if entry, ok := limiter.limiters[testClientIP]; ok {
 		entry.lastSeen = now.Add(-2 * rateLimiterTTL)
 	}
 	limiter.cleanupLocked(now)

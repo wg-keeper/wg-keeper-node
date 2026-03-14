@@ -9,6 +9,13 @@ import (
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 )
 
+const (
+	benchSubnet4    = "10.0.0.0/16"
+	benchPeerID     = "bench-peer"
+	benchPeerFmt    = "peer-%d"
+	benchAllowedIP4 = "10.0.0.2/32"
+)
+
 // newBenchService returns a WireGuardService wired to a no-op fake client,
 // suitable for benchmarks that do not exercise the kernel WireGuard path.
 func newBenchService(b *testing.B, cidr string) *WireGuardService {
@@ -31,7 +38,7 @@ func newBenchService(b *testing.B, cidr string) *WireGuardService {
 // ---------- IP allocation ----------
 
 func BenchmarkAllocateOneIPv4(b *testing.B) {
-	svc := newBenchService(b, "10.0.0.0/16")
+	svc := newBenchService(b, benchSubnet4)
 	used := make(map[string]struct{})
 	var hint uint32
 	b.ResetTimer()
@@ -85,13 +92,13 @@ func BenchmarkAllocateOneIPv6(b *testing.B) {
 // BenchmarkEnsurePeerRotate measures the rotate path: the peer already exists
 // and EnsurePeer is called again to refresh its keys/expiry.
 func BenchmarkEnsurePeerRotate(b *testing.B) {
-	svc := newBenchService(b, "10.0.0.0/16")
-	if _, err := svc.EnsurePeer("bench-peer", nil, []string{"IPv4"}); err != nil {
+	svc := newBenchService(b, benchSubnet4)
+	if _, err := svc.EnsurePeer(benchPeerID, nil, []string{"IPv4"}); err != nil {
 		b.Fatalf("setup: %v", err)
 	}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		if _, err := svc.EnsurePeer("bench-peer", nil, []string{"IPv4"}); err != nil {
+		if _, err := svc.EnsurePeer(benchPeerID, nil, []string{"IPv4"}); err != nil {
 			b.Fatal(err)
 		}
 	}
@@ -103,7 +110,7 @@ func BenchmarkEnsurePeerNew(b *testing.B) {
 	svc := newBenchService(b, "10.0.0.0/8")
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		if _, err := svc.EnsurePeer(fmt.Sprintf("peer-%d", i), nil, []string{"IPv4"}); err != nil {
+		if _, err := svc.EnsurePeer(fmt.Sprintf(benchPeerFmt, i), nil, []string{"IPv4"}); err != nil {
 			b.Fatal(err)
 		}
 	}
@@ -114,19 +121,19 @@ func BenchmarkEnsurePeerNew(b *testing.B) {
 func BenchmarkDeletePeer(b *testing.B) {
 	key, _ := wgtypes.GenerateKey()
 	psk, _ := wgtypes.GenerateKey()
-	_, ipn, _ := net.ParseCIDR("10.0.0.2/32")
+	_, ipn, _ := net.ParseCIDR(benchAllowedIP4)
 	rec := PeerRecord{
-		PeerID:       "bench-peer",
+		PeerID:       benchPeerID,
 		PublicKey:    key,
 		PresharedKey: psk,
 		AllowedIPs:   []net.IPNet{*ipn},
 		CreatedAt:    time.Now().UTC(),
 	}
-	svc := newBenchService(b, "10.0.0.0/16")
+	svc := newBenchService(b, benchSubnet4)
 	svc.store.Set(rec)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		if err := svc.DeletePeer("bench-peer"); err != nil {
+		if err := svc.DeletePeer(benchPeerID); err != nil {
 			b.Fatal(err)
 		}
 		b.StopTimer()
@@ -140,9 +147,9 @@ func BenchmarkDeletePeer(b *testing.B) {
 func BenchmarkPeerStoreSet(b *testing.B) {
 	store := NewPeerStore()
 	key, _ := wgtypes.GenerateKey()
-	_, ipn, _ := net.ParseCIDR("10.0.0.2/32")
+	_, ipn, _ := net.ParseCIDR(benchAllowedIP4)
 	rec := PeerRecord{
-		PeerID:     "bench-peer",
+		PeerID:     benchPeerID,
 		PublicKey:  key,
 		AllowedIPs: []net.IPNet{*ipn},
 		CreatedAt:  time.Now().UTC(),
@@ -156,25 +163,25 @@ func BenchmarkPeerStoreSet(b *testing.B) {
 func BenchmarkPeerStoreGet(b *testing.B) {
 	store := NewPeerStore()
 	key, _ := wgtypes.GenerateKey()
-	_, ipn, _ := net.ParseCIDR("10.0.0.2/32")
+	_, ipn, _ := net.ParseCIDR(benchAllowedIP4)
 	store.Set(PeerRecord{
-		PeerID:     "bench-peer",
+		PeerID:     benchPeerID,
 		PublicKey:  key,
 		AllowedIPs: []net.IPNet{*ipn},
 		CreatedAt:  time.Now().UTC(),
 	})
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		store.Get("bench-peer")
+		store.Get(benchPeerID)
 	}
 }
 
 func BenchmarkPeerStoreGetParallel(b *testing.B) {
 	store := NewPeerStore()
 	key, _ := wgtypes.GenerateKey()
-	_, ipn, _ := net.ParseCIDR("10.0.0.2/32")
+	_, ipn, _ := net.ParseCIDR(benchAllowedIP4)
 	store.Set(PeerRecord{
-		PeerID:     "bench-peer",
+		PeerID:     benchPeerID,
 		PublicKey:  key,
 		AllowedIPs: []net.IPNet{*ipn},
 		CreatedAt:  time.Now().UTC(),
@@ -182,7 +189,7 @@ func BenchmarkPeerStoreGetParallel(b *testing.B) {
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			store.Get("bench-peer")
+			store.Get(benchPeerID)
 		}
 	})
 }
@@ -190,9 +197,9 @@ func BenchmarkPeerStoreGetParallel(b *testing.B) {
 func BenchmarkPeerStoreSetParallel(b *testing.B) {
 	store := NewPeerStore()
 	key, _ := wgtypes.GenerateKey()
-	_, ipn, _ := net.ParseCIDR("10.0.0.2/32")
+	_, ipn, _ := net.ParseCIDR(benchAllowedIP4)
 	rec := PeerRecord{
-		PeerID:     "bench-peer",
+		PeerID:     benchPeerID,
 		PublicKey:  key,
 		AllowedIPs: []net.IPNet{*ipn},
 		CreatedAt:  time.Now().UTC(),
@@ -211,7 +218,7 @@ func BenchmarkPeerStoreListPaginated1000(b *testing.B) {
 		key, _ := wgtypes.GenerateKey()
 		_, ipn, _ := net.ParseCIDR(fmt.Sprintf("10.%d.%d.2/32", i/256, i%256))
 		store.Set(PeerRecord{
-			PeerID:     fmt.Sprintf("peer-%d", i),
+			PeerID:     fmt.Sprintf(benchPeerFmt, i),
 			PublicKey:  key,
 			AllowedIPs: []net.IPNet{*ipn},
 			CreatedAt:  time.Now().UTC(),
@@ -229,7 +236,7 @@ func BenchmarkPeerStoreForEach1000(b *testing.B) {
 		key, _ := wgtypes.GenerateKey()
 		_, ipn, _ := net.ParseCIDR(fmt.Sprintf("10.%d.%d.2/32", i/256, i%256))
 		store.Set(PeerRecord{
-			PeerID:     fmt.Sprintf("peer-%d", i),
+			PeerID:     fmt.Sprintf(benchPeerFmt, i),
 			PublicKey:  key,
 			AllowedIPs: []net.IPNet{*ipn},
 			CreatedAt:  time.Now().UTC(),

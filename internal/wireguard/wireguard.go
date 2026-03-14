@@ -766,9 +766,8 @@ func allocateOneIPv4(subnet *net.IPNet, used map[string]struct{}, hint *uint32) 
 
 	// For subnets larger than maxIPv4Iter, cap the scan to avoid O(n) worst-case
 	// on a nearly-full subnet (mirrors the maxIter guard in allocateOneIPv6).
-	subnetSize := endInt - startInt + 1
 	maxIter := 0
-	if subnetSize > maxIPv4Iter {
+	if endInt-startInt+1 > maxIPv4Iter {
 		maxIter = maxIPv4Iter
 	}
 
@@ -779,41 +778,39 @@ func allocateOneIPv4(subnet *net.IPNet, used map[string]struct{}, hint *uint32) 
 
 	n := 0
 	// First pass: searchFrom → end. Wrap-around pass: start → searchFrom−1.
-	for candidate := searchFrom; candidate <= endInt; candidate++ {
-		if maxIter > 0 && n >= maxIter {
-			return net.IPNet{}, ErrNoAvailableIP
+	if ip, ok := scanIPv4Range(searchFrom, endInt, maxIter, &n, used, hint); ok {
+		return ip, nil
+	}
+	if searchFrom > startInt {
+		if ip, ok := scanIPv4Range(startInt, searchFrom-1, maxIter, &n, used, hint); ok {
+			return ip, nil
 		}
-		n++
+	}
+	return net.IPNet{}, ErrNoAvailableIP
+}
+
+// scanIPv4Range scans [from, to] for the first free IPv4 address.
+// n is a shared iteration counter; maxIter > 0 caps total iterations across passes.
+func scanIPv4Range(from, to uint32, maxIter int, n *int, used map[string]struct{}, hint *uint32) (net.IPNet, bool) {
+	for candidate := from; candidate <= to; candidate++ {
+		if maxIter > 0 && *n >= maxIter {
+			return net.IPNet{}, false
+		}
+		*n++
 		ip := uint32ToIP(candidate)
 		if _, exists := used[ip.String()]; !exists {
 			used[ip.String()] = struct{}{}
 			if hint != nil {
 				*hint = candidate
 			}
-			return net.IPNet{IP: ip, Mask: net.CIDRMask(32, 32)}, nil
+			return net.IPNet{IP: ip, Mask: net.CIDRMask(32, 32)}, true
 		}
 	}
-	if searchFrom > startInt {
-		for candidate := startInt; candidate < searchFrom; candidate++ {
-			if maxIter > 0 && n >= maxIter {
-				return net.IPNet{}, ErrNoAvailableIP
-			}
-			n++
-			ip := uint32ToIP(candidate)
-			if _, exists := used[ip.String()]; !exists {
-				used[ip.String()] = struct{}{}
-				if hint != nil {
-					*hint = candidate
-				}
-				return net.IPNet{IP: ip, Mask: net.CIDRMask(32, 32)}, nil
-			}
-		}
-	}
-	return net.IPNet{}, ErrNoAvailableIP
+	return net.IPNet{}, false
 }
 
 // allocateOneIPv6 finds the next free IPv6 address in subnet.
-// hint works the same as in allocateOneIPv6: ring-buffer cursor updated on success.
+// hint works the same as in allocateOneIPv4: ring-buffer cursor updated on success.
 func allocateOneIPv6(subnet *net.IPNet, used map[string]struct{}, hint *net.IP) (net.IPNet, error) {
 	start, end, err := ipv6Range(subnet)
 	if err != nil {
@@ -825,27 +822,49 @@ func allocateOneIPv6(subnet *net.IPNet, used map[string]struct{}, hint *net.IP) 
 		maxIter = maxIPv6PeersReported
 	}
 
-	searchFrom := make(net.IP, 16)
-	copy(searchFrom, start)
-	if hint != nil && *hint != nil {
-		last := (*hint).To16()
-		// Use hint only if it's inside the current subnet range.
-		if !ipAfterIPv6(start, last) && !ipAfterIPv6(last, end) {
-			next := nextIPv6(last)
-			if !ipAfterIPv6(next, end) {
-				copy(searchFrom, next)
-			}
-			// If next overflows past end, searchFrom stays at start (full wrap).
-		}
-	}
+	searchFrom := ipv6SearchFrom(start, end, hint)
 
 	n := 0
-	// First pass: searchFrom → end.
-	for ip := searchFrom; !ipAfterIPv6(ip, end); ip = nextIPv6(ip) {
-		if maxIter > 0 && n >= maxIter {
-			return net.IPNet{}, ErrNoAvailableIP
+	// First pass: searchFrom → end. Wrap-around pass: start → searchFrom−1.
+	if ip, ok := scanIPv6Range(searchFrom, end, maxIter, &n, used, hint); ok {
+		return ip, nil
+	}
+	if ipAfterIPv6(searchFrom, start) {
+		if ip, ok := scanIPv6Range(start, prevIPv6(searchFrom), maxIter, &n, used, hint); ok {
+			return ip, nil
 		}
-		n++
+	}
+	return net.IPNet{}, ErrNoAvailableIP
+}
+
+// ipv6SearchFrom resolves the ring-buffer start address for IPv6 allocation.
+func ipv6SearchFrom(start, end net.IP, hint *net.IP) net.IP {
+	searchFrom := make(net.IP, 16)
+	copy(searchFrom, start)
+	if hint == nil || *hint == nil {
+		return searchFrom
+	}
+	last := (*hint).To16()
+	// Use hint only if it's inside the current subnet range.
+	if ipAfterIPv6(start, last) || ipAfterIPv6(last, end) {
+		return searchFrom
+	}
+	next := nextIPv6(last)
+	if !ipAfterIPv6(next, end) {
+		copy(searchFrom, next)
+	}
+	// If next overflows past end, searchFrom stays at start (full wrap).
+	return searchFrom
+}
+
+// scanIPv6Range scans [from, to] for the first free IPv6 address.
+// n is a shared iteration counter; maxIter > 0 caps total iterations across passes.
+func scanIPv6Range(from, to net.IP, maxIter int, n *int, used map[string]struct{}, hint *net.IP) (net.IPNet, bool) {
+	for ip := from; !ipAfterIPv6(ip, to); ip = nextIPv6(ip) {
+		if maxIter > 0 && *n >= maxIter {
+			return net.IPNet{}, false
+		}
+		*n++
 		if _, exists := used[ip.String()]; !exists {
 			used[ip.String()] = struct{}{}
 			if hint != nil {
@@ -853,28 +872,24 @@ func allocateOneIPv6(subnet *net.IPNet, used map[string]struct{}, hint *net.IP) 
 				copy(allocated, ip)
 				*hint = allocated
 			}
-			return net.IPNet{IP: ip, Mask: net.CIDRMask(128, 128)}, nil
+			return net.IPNet{IP: ip, Mask: net.CIDRMask(128, 128)}, true
 		}
 	}
-	// Wrap-around pass: start → searchFrom−1.
-	if ipAfterIPv6(searchFrom, start) {
-		for ip := start; ipAfterIPv6(searchFrom, ip); ip = nextIPv6(ip) {
-			if maxIter > 0 && n >= maxIter {
-				return net.IPNet{}, ErrNoAvailableIP
-			}
-			n++
-			if _, exists := used[ip.String()]; !exists {
-				used[ip.String()] = struct{}{}
-				if hint != nil {
-					allocated := make(net.IP, 16)
-					copy(allocated, ip)
-					*hint = allocated
-				}
-				return net.IPNet{IP: ip, Mask: net.CIDRMask(128, 128)}, nil
-			}
+	return net.IPNet{}, false
+}
+
+// prevIPv6 returns the IPv6 address immediately before ip.
+func prevIPv6(ip net.IP) net.IP {
+	prev := make(net.IP, 16)
+	copy(prev, ip.To16())
+	for i := 15; i >= 0; i-- {
+		if prev[i] > 0 {
+			prev[i]--
+			return prev
 		}
+		prev[i] = 255
 	}
-	return net.IPNet{}, ErrNoAvailableIP
+	return prev
 }
 
 func resolveServerIP4(subnet *net.IPNet, serverIP string) (net.IP, error) {

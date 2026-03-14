@@ -15,6 +15,12 @@ import (
 	"github.com/wg-keeper/wg-keeper-node/internal/wireguard"
 )
 
+const (
+	benchPeersPath = "/peers"
+	benchPeerID    = "550e8400-e29b-41d4-a716-446655440000"
+	benchAllowedIP = "10.0.0.2/32"
+)
+
 // silenceLogs redirects the standard logger to io.Discard for the duration of
 // a benchmark and restores it afterwards. Use this for handlers that log on
 // every request so that log I/O is not included in the measurement.
@@ -30,9 +36,9 @@ func init() {
 
 func newBenchRouter(svc mockWGService) *gin.Engine {
 	r := gin.New()
-	r.POST("/peers", apiKeyMiddleware(testAPIKey), createPeerHandler(svc, false))
-	r.GET("/peers", apiKeyMiddleware(testAPIKey), listPeersHandler(svc, false))
-	r.GET("/peers/:peerId", apiKeyMiddleware(testAPIKey), getPeerHandler(svc, false))
+	r.POST(benchPeersPath, apiKeyMiddleware(testAPIKey), createPeerHandler(svc, false))
+	r.GET(benchPeersPath, apiKeyMiddleware(testAPIKey), listPeersHandler(svc, false))
+	r.GET(benchPeersPath+"/:peerId", apiKeyMiddleware(testAPIKey), getPeerHandler(svc, false))
 	return r
 }
 
@@ -61,7 +67,7 @@ func BenchmarkListPeersHandler(b *testing.B) {
 		},
 	}
 	router := newBenchRouter(svc)
-	req := httptest.NewRequest(http.MethodGet, "/peers?limit=20", nil)
+	req := httptest.NewRequest(http.MethodGet, benchPeersPath+"?limit=20", nil)
 	req.Header.Set(apiKeyHeader, testAPIKey)
 
 	b.ResetTimer()
@@ -76,11 +82,11 @@ func BenchmarkCreatePeerHandler(b *testing.B) {
 	svc := mockWGService{
 		ensurePeerFunc: func(_ string, _ *time.Time, _ []string) (wireguard.PeerInfo, error) {
 			return wireguard.PeerInfo{
-				PeerID:          "550e8400-e29b-41d4-a716-446655440000",
+				PeerID:          benchPeerID,
 				PublicKey:       "pubkey",
 				PrivateKey:      "privkey",
 				PresharedKey:    "psk",
-				AllowedIPs:      []string{"10.0.0.2/32"},
+				AllowedIPs:      []string{benchAllowedIP},
 				AddressFamilies: []string{"IPv4"},
 			}, nil
 		},
@@ -89,11 +95,11 @@ func BenchmarkCreatePeerHandler(b *testing.B) {
 		},
 	}
 	router := newBenchRouter(svc)
-	body := []byte(`{"peerId":"550e8400-e29b-41d4-a716-446655440000"}`)
+	body := []byte(`{"peerId":"` + benchPeerID + `"}`)
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		req := httptest.NewRequest(http.MethodPost, "/peers", bytes.NewReader(body))
+		req := httptest.NewRequest(http.MethodPost, benchPeersPath, bytes.NewReader(body))
 		req.Header.Set(apiKeyHeader, testAPIKey)
 		req.Header.Set("Content-Type", "application/json")
 		rec := httptest.NewRecorder()
@@ -104,8 +110,8 @@ func BenchmarkCreatePeerHandler(b *testing.B) {
 func BenchmarkGetPeerHandler(b *testing.B) {
 	detail := &wireguard.PeerDetail{
 		PeerListItem: wireguard.PeerListItem{
-			PeerID:          "550e8400-e29b-41d4-a716-446655440000",
-			AllowedIPs:      []string{"10.0.0.2/32"},
+			PeerID:          benchPeerID,
+			AllowedIPs:      []string{benchAllowedIP},
 			AddressFamilies: []string{"IPv4"},
 			PublicKey:       "pk",
 			CreatedAt:       time.Now().UTC().Format(time.RFC3339),
@@ -117,7 +123,7 @@ func BenchmarkGetPeerHandler(b *testing.B) {
 		getPeerFunc: func(_ string) (*wireguard.PeerDetail, error) { return detail, nil },
 	}
 	router := newBenchRouter(svc)
-	req := httptest.NewRequest(http.MethodGet, "/peers/550e8400-e29b-41d4-a716-446655440000", nil)
+	req := httptest.NewRequest(http.MethodGet, benchPeersPath+"/"+benchPeerID, nil)
 	req.Header.Set(apiKeyHeader, testAPIKey)
 
 	b.ResetTimer()
@@ -152,7 +158,7 @@ func BenchmarkListPeersHandlerParallel(b *testing.B) {
 		},
 	}
 	router := newBenchRouter(svc)
-	req := httptest.NewRequest(http.MethodGet, "/peers?limit=20", nil)
+	req := httptest.NewRequest(http.MethodGet, benchPeersPath+"?limit=20", nil)
 	req.Header.Set(apiKeyHeader, testAPIKey)
 
 	b.ResetTimer()
@@ -167,8 +173,8 @@ func BenchmarkListPeersHandlerParallel(b *testing.B) {
 func BenchmarkGetPeerHandlerParallel(b *testing.B) {
 	detail := &wireguard.PeerDetail{
 		PeerListItem: wireguard.PeerListItem{
-			PeerID:          "550e8400-e29b-41d4-a716-446655440000",
-			AllowedIPs:      []string{"10.0.0.2/32"},
+			PeerID:          benchPeerID,
+			AllowedIPs:      []string{benchAllowedIP},
 			AddressFamilies: []string{"IPv4"},
 			PublicKey:       "pk",
 			CreatedAt:       time.Now().UTC().Format(time.RFC3339),
@@ -180,7 +186,7 @@ func BenchmarkGetPeerHandlerParallel(b *testing.B) {
 		getPeerFunc: func(_ string) (*wireguard.PeerDetail, error) { return detail, nil },
 	}
 	router := newBenchRouter(svc)
-	req := httptest.NewRequest(http.MethodGet, "/peers/550e8400-e29b-41d4-a716-446655440000", nil)
+	req := httptest.NewRequest(http.MethodGet, benchPeersPath+"/"+benchPeerID, nil)
 	req.Header.Set(apiKeyHeader, testAPIKey)
 
 	b.ResetTimer()
