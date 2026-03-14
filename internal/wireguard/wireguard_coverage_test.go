@@ -122,7 +122,7 @@ func TestAllocateOneIPv6LargeSubnet(t *testing.T) {
 	used := map[string]struct{}{}
 	ipNet, err := allocateOneIPv6(subnet, used, nil)
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		t.Fatalf(msgUnexpectedError, err)
 	}
 	if ipNet.IP.To4() != nil {
 		t.Error("expected IPv6 address")
@@ -857,7 +857,7 @@ func TestValidateAddressFamiliesDuplicateFamily(t *testing.T) {
 
 func TestResolveServerIP4IPv6Input(t *testing.T) {
 	_, subnet, _ := net.ParseCIDR(subnetTestCIDR)
-	_, err := resolveServerIP4(subnet, "fd00::1")
+	_, err := resolveServerIP4(subnet, ipv6TestAddr1)
 	if err == nil {
 		t.Fatal("expected error for IPv6 address passed as server_ip")
 	}
@@ -881,7 +881,7 @@ func TestPrevIPv6(t *testing.T) {
 	cases := []struct{ in, want string }{
 		{"fd00::5", "fd00::4"},
 		{"fd00::100", "fd00::ff"},
-		{"fd00::1", "fd00::"},
+		{ipv6TestAddr1, "fd00::"},
 	}
 	for _, tc := range cases {
 		got := prevIPv6(net.ParseIP(tc.in))
@@ -928,12 +928,12 @@ func TestAllocateOneIPv4WrapAround(t *testing.T) {
 	// /30: usable range 10.0.0.1 – 10.0.0.2 (2 IPs)
 	_, subnet, _ := net.ParseCIDR("10.0.0.0/30")
 	used := map[string]struct{}{"10.0.0.2": {}}
-	hint := ipToUint32(net.ParseIP("10.0.0.1").To4()) // searchFrom = .2
+	hint := ipToUint32(net.ParseIP(ipServerTest).To4()) // searchFrom = .2
 	ipNet, err := allocateOneIPv4(subnet, used, &hint)
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		t.Fatalf(msgUnexpectedError, err)
 	}
-	if ipNet.IP.String() != "10.0.0.1" {
+	if ipNet.IP.String() != ipServerTest {
 		t.Errorf("expected 10.0.0.1 (wrap-around), got %s", ipNet.IP)
 	}
 }
@@ -944,12 +944,12 @@ func TestAllocateOneIPv6WrapAround(t *testing.T) {
 	// fd00::/126: usable fd00::1 – fd00::2
 	_, subnet, _ := net.ParseCIDR("fd00::/126")
 	used := map[string]struct{}{"fd00::2": {}}
-	hint := net.IP(net.ParseIP("fd00::1").To16()) // searchFrom = fd00::2
+	hint := net.IP(net.ParseIP(ipv6TestAddr1).To16()) // searchFrom = fd00::2
 	ipNet, err := allocateOneIPv6(subnet, used, &hint)
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		t.Fatalf(msgUnexpectedError, err)
 	}
-	if ipNet.IP.String() != "fd00::1" {
+	if ipNet.IP.String() != ipv6TestAddr1 {
 		t.Errorf("expected fd00::1 (wrap-around), got %s", ipNet.IP)
 	}
 }
@@ -975,7 +975,7 @@ func TestAllocateOneIPv4LargeSubnetCap(t *testing.T) {
 func TestScanIPv4RangeMaxIterExceeded(t *testing.T) {
 	used := map[string]struct{}{}
 	n := 5
-	from := ipToUint32(net.ParseIP("10.0.0.1").To4())
+	from := ipToUint32(net.ParseIP(ipServerTest).To4())
 	to := ipToUint32(net.ParseIP("10.0.0.10").To4())
 	if _, ok := scanIPv4Range(from, to, 5, &n, used, nil); ok {
 		t.Fatal("expected false when n already >= maxIter")
@@ -985,7 +985,7 @@ func TestScanIPv4RangeMaxIterExceeded(t *testing.T) {
 func TestScanIPv6RangeMaxIterExceeded(t *testing.T) {
 	used := map[string]struct{}{}
 	n := 5
-	from := net.ParseIP("fd00::1").To16()
+	from := net.ParseIP(ipv6TestAddr1).To16()
 	to := net.ParseIP("fd00::10").To16()
 	if _, ok := scanIPv6Range(from, to, 5, &n, used, nil); ok {
 		t.Fatal("expected false when n already >= maxIter")
